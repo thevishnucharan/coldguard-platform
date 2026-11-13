@@ -1,244 +1,465 @@
 {
- "uid": "cg-infra",
- "title": "ColdGuard \u00b7 Infrastructure health",
- "tags": [
-  "coldguard"
- ],
- "timezone": "browser",
- "schemaVersion": 39,
- "version": 1,
- "refresh": "30s",
- "time": {
-  "from": "now-6h",
-  "to": "now"
- },
- "panels": [
-  {
-   "id": 1,
-   "type": "stat",
-   "title": "Targets up",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 8,
-    "x": 0,
-    "y": 0
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "expr": "up",
-     "legendFormat": "{{job}}"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short"
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ]
-    },
-    "colorMode": "value",
-    "graphMode": "area"
-   }
+  "uid": "cg-infra",
+  "title": "ColdGuard · Infrastructure health",
+  "tags": [
+    "coldguard"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
   },
-  {
-   "id": 2,
-   "type": "stat",
-   "title": "PostgreSQL up",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 8,
-    "x": 8,
-    "y": 0
-   },
-   "targets": [
+  "panels": [
     {
-     "refId": "A",
-     "expr": "pg_up",
-     "legendFormat": ""
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short"
+      "id": 1,
+      "type": "stat",
+      "title": "Targets up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ]
-    },
-    "colorMode": "value",
-    "graphMode": "area"
-   }
-  },
-  {
-   "id": 3,
-   "type": "stat",
-   "title": "Redis connected clients",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 8,
-    "x": 16,
-    "y": 0
-   },
-   "targets": [
     {
-     "refId": "A",
-     "expr": "redis_connected_clients",
-     "legendFormat": ""
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short"
+      "id": 2,
+      "type": "stat",
+      "title": "PostgreSQL up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_up",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ]
-    },
-    "colorMode": "value",
-    "graphMode": "area"
-   }
-  },
-  {
-   "id": 4,
-   "type": "timeseries",
-   "title": "Process CPU (cores)",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 0,
-    "y": 8
-   },
-   "targets": [
     {
-     "refId": "A",
-     "expr": "rate(process_cpu_seconds_total{job=~\"coldguard.*\"}[5m])",
-     "legendFormat": "{{job}}"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short"
+      "id": 3,
+      "type": "stat",
+      "title": "Redis connected clients",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_connected_clients",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
-    "overrides": []
-   },
-   "options": {}
-  },
-  {
-   "id": 5,
-   "type": "timeseries",
-   "title": "Process memory (RSS)",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 12,
-    "y": 8
-   },
-   "targets": [
     {
-     "refId": "A",
-     "expr": "process_resident_memory_bytes{job=~\"coldguard.*\"}",
-     "legendFormat": "{{job}}"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "bytes"
+      "id": 4,
+      "type": "timeseries",
+      "title": "Process CPU (cores)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=~\"coldguard.*\"}[5m])",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
     },
-    "overrides": []
-   },
-   "options": {}
-  },
-  {
-   "id": 6,
-   "type": "timeseries",
-   "title": "PostgreSQL connections",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 0,
-    "y": 16
-   },
-   "targets": [
     {
-     "refId": "A",
-     "expr": "sum(pg_stat_activity_count)",
-     "legendFormat": ""
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short"
+      "id": 5,
+      "type": "timeseries",
+      "title": "Process memory (RSS)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=~\"coldguard.*\"}",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
     },
-    "overrides": []
-   },
-   "options": {}
-  },
-  {
-   "id": 7,
-   "type": "timeseries",
-   "title": "Redis memory",
-   "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 12,
-    "y": 16
-   },
-   "targets": [
     {
-     "refId": "A",
-     "expr": "redis_memory_used_bytes",
-     "legendFormat": ""
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "bytes"
+      "id": 6,
+      "type": "timeseries",
+      "title": "PostgreSQL connections",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pg_stat_activity_count)",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
     },
-    "overrides": []
-   },
-   "options": {}
-  }
- ]
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Redis memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Container CPU (cores)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service!=\"\"}[5m]))",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"coldguard\",container!=\"\",container!=\"POD\"}[5m]))",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Container memory (working set)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (container_label_com_docker_compose_service) (container_memory_working_set_bytes{container_label_com_docker_compose_service!=\"\"})",
+          "legendFormat": "{{container_label_com_docker_compose_service}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"coldguard\",container!=\"\",container!=\"POD\"})",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Containers running / healthy",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(time() - container_last_seen{container_label_com_docker_compose_service!=\"\"} < 60)",
+          "legendFormat": "compose running"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(container_health_status{status=\"healthy\"})",
+          "legendFormat": "compose healthy"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(kube_pod_container_status_ready{namespace=\"coldguard\"})",
+          "legendFormat": "k8s ready"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Container restarts (1h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"coldguard\"}[1h]))",
+          "legendFormat": "k8s restarts"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(container_restart_count[1h]))",
+          "legendFormat": "compose restarts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Scrape targets down",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(up == 0) or vector(0)",
+          "legendFormat": "down"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      }
+    }
+  ]
 }

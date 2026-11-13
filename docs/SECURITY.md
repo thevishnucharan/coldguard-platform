@@ -17,8 +17,10 @@
 | Transport / headers | CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, HSTS in staging/production; restrictive CORS (explicit origins, methods, headers) | `core/middleware.py`, `main.py`, `frontend/nginx.conf` |
 | Errors | Generic 500 body; stack traces only in server logs | `main.py` |
 | Logs | Structured JSON; passwords/tokens/secrets/e-mail masked | `core/logging.py` |
-| Config | App refuses to start in staging/production with the default `SECRET_KEY` or `DEMO_MODE=true` | `core/config.py` |
+| Config | App refuses to start in staging/production with a weak/default `SECRET_KEY`, `DEMO_MODE=true` or non-https CORS origins; a `*` CORS origin is refused in every environment (credentials are allowed) | `core/config.py`, `tests/unit/test_security_controls.py` |
 | Secrets | No credentials in source: Compose reads `.env` (git-ignored; `.env.example` has placeholders); Kubernetes generates `coldguard-secrets` from a git-ignored `secrets.env` | `docker-compose.yml`, `infrastructure/k8s/` |
+| CI | Every build: no tracked `.env`/`secrets.env`/keys, no private keys or cloud tokens, no literal secrets in k8s manifests, no backend secret names/values in the frontend bundle, `npm audit`/`pip-audit` | `scripts/ci/security-scan.sh` |
+| Kubernetes | Secrets only via `secretKeyRef`/`envFrom`; service-account tokens mounted only for Prometheus and kube-state-metrics (read-only RBAC); deploy scripts refuse non-local contexts | `infrastructure/k8s/base`, `scripts/ci/k8s-*.sh` |
 | Containers | Non-root users (API uid 10001, nginx-unprivileged, simulator uid 10002), `no-new-privileges`, dropped capabilities, seccomp RuntimeDefault, resource limits; NetworkPolicies default-deny | Dockerfiles, `infrastructure/k8s/base` |
 
 ## Production checklist

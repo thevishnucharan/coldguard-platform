@@ -34,45 +34,22 @@ The 0002 migration upgrades v1 databases in place and is intentionally not downg
 
 ## 2. Kubernetes (kustomize)
 
-```
-infrastructure/k8s/
-  base/                 namespace, data (Postgres StatefulSet+PVC, Redis+PVC, Mosquitto),
-                        app (migrate Job, API Deployment+HPA+PDB, worker, frontend+HPA, Ingress),
-                        monitoring (Prometheus, Grafana, exporters), NetworkPolicies (default deny)
-  overlays/local/       demo mode, 1 replica, local images, secrets from secrets.env (git-ignored)
-```
+Full guide: [KUBERNETES.md](KUBERNETES.md). The short version for a local kind cluster:
 
-Probes: API `startupProbe`/`livenessProbe` on `/health`, `readinessProbe` on `/ready` (DB check);
-worker on `/metrics`; frontend on `/healthz`. API and worker pods run an init container
-(`scripts/wait_for_migrations.py`) so they only start once the `coldguard-migrate` Job has brought
-the schema to head. Rolling updates use `maxUnavailable: 0`; the worker uses `Recreate` so there is
-never more than one scheduler / MQTT consumer.
-
-### Local cluster with kind (tested)
-
-```powershell
-kind create cluster --name coldguard
-docker compose build migrate frontend                       # builds coldguard-backend:2.0.0, coldguard-frontend:2.0.0
-kind load docker-image coldguard-backend:2.0.0 coldguard-frontend:2.0.0 --name coldguard
-copy infrastructure\k8s\overlays\local\secrets.env.example infrastructure\k8s\overlays\local\secrets.env   # edit values
-kubectl --context kind-coldguard apply -k infrastructure/k8s/overlays/local
-kubectl --context kind-coldguard -n coldguard wait --for=condition=complete job/coldguard-migrate --timeout=600s
-kubectl --context kind-coldguard -n coldguard rollout status deploy/backend deploy/worker deploy/frontend
-kubectl --context kind-coldguard -n coldguard port-forward svc/frontend 8088:80     # http://localhost:8088
+```bash
+bash scripts/ci/build-images.sh   # images tagged 2.0.0
+bash scripts/ci/k8s-deploy.sh     # kind-coldguard + ingress-nginx + metrics-server, overlays/local
+bash scripts/ci/k8s-smoke.sh      # end-to-end verification
+# UI: http://coldguard.localhost:8088
 ```
 
-Always pass `--context` so commands never hit another cluster in your kubeconfig.
-The HPAs need metrics-server (`kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml`, add `--kubelet-insecure-tls` on kind).
-The Ingress expects an NGINX ingress controller (host `coldguard.local`).
-Minikube: `minikube image load …` instead of `kind load`, then the same `kubectl apply -k`.
-
-### Production notes
-* Push images to a registry and set them with `kustomize edit set image` in a production overlay.
-* Replace `secretGenerator` with External Secrets / Sealed Secrets; never commit `secrets.env`.
-* Prefer managed PostgreSQL: remove the StatefulSet and point `DATABASE_URL` at it.
-* Add TLS to the Ingress (cert-manager) and a TLS listener to Mosquitto (LoadBalancer :8883).
+Overlays: `local` (demo mode, 1 replica, generated git-ignored secrets) and `production` (registry
+images, TLS ingress, secrets from an external store). Always pass `--context`, so commands never
+reach another cluster in your kubeconfig.
 
 ## 3. Observability
+
+Details: [observability.md](observability.md).
 * Metrics: API `/metrics` (request rate, latency histogram, 5xx, telemetry accepted/rejected/duplicates,
   ingest latency, incidents, escalations, anomalies, notifications, WebSocket clients) and worker `:9101/metrics`
   (MQTT connected, heartbeat, job duration/failures, active incidents, sensors by status, process CPU/RSS).

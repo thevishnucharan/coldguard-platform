@@ -29,16 +29,22 @@ Production overrides: `docker compose -f docker-compose.yml -f docker-compose.pr
 
 ## Option B — Kubernetes (kind / minikube)
 
-```powershell
-kind create cluster --name coldguard
-docker compose build migrate frontend
-kind load docker-image coldguard-backend:2.0.0 coldguard-frontend:2.0.0 --name coldguard
-copy infrastructure\k8s\overlays\local\secrets.env.example infrastructure\k8s\overlays\local\secrets.env   # edit
-kubectl --context kind-coldguard apply -k infrastructure/k8s/overlays/local
-kubectl --context kind-coldguard -n coldguard port-forward svc/frontend 8088:80   # http://localhost:8088
+```bash
+bash scripts/ci/build-images.sh    # coldguard-backend:2.0.0, coldguard-frontend:2.0.0
+bash scripts/ci/k8s-deploy.sh      # kind cluster + ingress-nginx + metrics-server, random git-ignored secrets
+bash scripts/ci/k8s-smoke.sh       # end-to-end checks (ingress, RBAC, MQTT, metrics, HPA, rollout, persistence)
 ```
 
-Details (probes, HPA, NetworkPolicies, production notes): [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+UI at http://coldguard.localhost:8088. The deploy scripts only target local contexts (`kind-*`,
+`minikube`, …). Details (topology, probes, HPA, NetworkPolicies, secrets, production overlay):
+[docs/KUBERNETES.md](docs/KUBERNETES.md).
+
+## CI/CD
+
+`Jenkinsfile` runs the phases in `scripts/ci/`: backend/frontend tests, Compose↔k8s config
+consistency, security scan, image build, Compose smoke test, kind deploy + smoke test, and gated
+registry push / production deploy. Run the same thing locally with `bash scripts/ci/run-all.sh`.
+See [docs/jenkins_setup.md](docs/jenkins_setup.md).
 
 ## Option C — Local development (no Docker)
 
@@ -81,8 +87,8 @@ were not migrated. All demo sensors/readings are labelled **Simulated**.
 ## Tests
 
 ```powershell
-cd backend;  python -m pytest tests -q        # 154 tests
-cd frontend; npx vitest run                   # 16 tests (run from an uppercase C:\ path on Windows)
+cd backend;  python -m pytest tests -q        # 191 tests
+cd frontend; npm test                         # 20 tests (run from an uppercase C:\ path on Windows)
 cd backend;  python ml/evaluate.py            # ML evaluation on the SIMULATED dataset
 ```
 
@@ -90,13 +96,14 @@ cd backend;  python ml/evaluate.py            # ML evaluation on the SIMULATED d
 
 | Area | Highlights |
 |---|---|
-| RBAC | 5 roles, 40 permissions in one matrix, facility/region scope on every query, 404 for out-of-scope data — [docs/RBAC.md](docs/RBAC.md) |
+| RBAC | 5 roles, 44 permissions in one matrix, facility/region scope on every query, 404 for out-of-scope data — [docs/RBAC.md](docs/RBAC.md) |
 | Auth | JWT access (memory) + rotating refresh tokens with reuse detection, lockout, audited failures |
 | Monitoring | MQTT / REST / simulator → validation → quarantine → policy thresholds → incidents; missing-telemetry vs offline; stale data flagged |
 | Incidents | DETECTED → … → CLOSED, immutable timeline, supervisor approvals, background escalation |
 | Inventory | Batch quantities, FEFO, immutable ledger, supervisor-only release/disposal |
 | Maintenance | Work orders, calibration offsets, equipment replacement, RULE vs ML auto-tickets |
 | ML | IsolationForest (v1 kept, v2 calibrated) + rolling z-score; versioned, explained, decision support |
+| Excursion routing | Admin plans relocation of at-risk stock: GBR quantile ETA model (p50/p90), capacity- & hold-time-aware trips, baseline comparison, approval workflow — [docs/logistics.md](docs/logistics.md) |
 | UI | Role dashboards, geographic facility maps, live WebSocket updates, notification centre |
 | Ops | Multi-stage non-root images, Compose + kustomize (HPA, PDB, NetworkPolicies), Prometheus alerts, Grafana dashboards |
 

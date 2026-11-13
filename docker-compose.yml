@@ -157,6 +157,23 @@ services:
     depends_on: { postgres: { condition: service_healthy } }
     networks: [data]
 
+  container-exporter:              # per-container CPU / memory / health (Docker Engine API; works on Docker Desktop)
+    <<: *hardening
+    image: python:3.14-slim
+    command: ["python", "/app/exporter.py"]
+    environment:
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ./infrastructure/docker-stats-exporter:/app:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # read-only; internal network only, no host port
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9417/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy: { resources: { limits: { cpus: "0.25", memory: 64M } } }
+    networks: [data]
+
   redis-exporter:
     <<: *hardening
     image: oliver006/redis_exporter:v1.66.0

@@ -4,13 +4,13 @@
 services:
   migrate:
     command: ["sh", "-c", "python scripts/migrate.py"]
-    environment: { ENVIRONMENT: production, DEMO_MODE: "false", SIMULATION_ENABLED: "false" }
+    environment: { ENVIRONMENT: production, DEMO_MODE: "false", SIMULATION_ENABLED: "false", BACKEND_CORS_ORIGINS: "${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN}" }
   backend:
     ports: !reset []
     environment: { ENVIRONMENT: production, DEMO_MODE: "false", SIMULATION_ENABLED: "false", LOG_LEVEL: WARNING, BACKEND_CORS_ORIGINS: "${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN}" }
     deploy: { replicas: 1, resources: { limits: { cpus: "2.0", memory: 1G } } }
   worker:
-    environment: { ENVIRONMENT: production, DEMO_MODE: "false", SIMULATION_ENABLED: "false", LOG_LEVEL: WARNING }
+    environment: { ENVIRONMENT: production, DEMO_MODE: "false", SIMULATION_ENABLED: "false", LOG_LEVEL: WARNING, BACKEND_CORS_ORIGINS: "${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN}" }
   frontend:
     build: { args: { VITE_SHOW_DEMO_LOGINS: "false" } }
   prometheus:

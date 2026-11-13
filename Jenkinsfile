@@ -1,371 +1,154 @@
 // ==============================================================================
-// ColdGuard CI/CD Pipeline
+// ColdGuard CI/CD pipeline
 // ==============================================================================
+// Every stage is a thin wrapper around scripts/ci/*.sh, so the pipeline can be reproduced
+// locally with `scripts/ci/run-all.sh` (see docs/jenkins_setup.md).
 //
-// Stages:
-//   1.  Checkout
-//   2.  Backend: Install Dependencies
-//   3.  Backend: Lint
-//   4.  Backend: Tests  (JUnit XML + coverage)
-//   5.  Frontend: Install Dependencies
-//   6.  Frontend: Tests (Vitest)
-//   7.  Frontend: Build (production bundle)
-//   8.  Docker: Build images
-//   9.  Docker Compose: Smoke test
-//   10. [OPTIONAL] Push to Azure Container Registry
-//       Runs only when AZURE_ACR_ENABLED == "true"
+//   1. Checkout
+//   2. Build & test (parallel)      backend lint + pytest | frontend lint + vitest + build
+//   3. Config consistency           compose <-> k8s copies, compose render, kustomize + kubeconform
+//   4. Security scan                tracked secrets, literal secrets in manifests, bundle, deps
+//   5. Docker images                coldguard-{backend,frontend,simulator}:{2.0.0,<git-sha>}
+//   6. Compose smoke test           full stack, throw-away secrets, end-to-end checks
+//   7. Kubernetes deploy (kind)     local cluster: ingress-nginx, metrics-server, kustomize overlay
+//   8. Kubernetes smoke test        ingress, RBAC, MQTT, Prometheus/Grafana, HPA, NetworkPolicy,
+//                                   zero-downtime rollout, self-healing, persistence
+//   9. Push images                  [PUSH_IMAGES]        registry credentials from Jenkins
+//  10. Deploy production            [DEPLOY_PRODUCTION]  manual approval + kubeconfig credential
 //
-// LOCAL MODE (default):
-//   - All stages run without any cloud credentials.
-//   - Stage 10 is skipped.
-//
-// AZURE MODE:
-//   Configure the following Jenkins Credentials and env vars:
-//   - Credentials ID "coldguard-acr-credentials" (Username/Password)
-//     Username = ACR login server (e.g. coldguardacr.azurecr.io)
-//     Password = ACR access token (use Service Principal or Admin password)
-//   - Environment variable AZURE_ACR_ENABLED = "true"  (in Jenkins or branch config)
-//   - Environment variable AZURE_ACR_REGISTRY (ACR login server, same as above)
-//
-// Usage:
-//   - Set up a Jenkins Pipeline job pointing to this Jenkinsfile.
-//   - See docs/jenkins_setup.md for full setup instructions.
+// Agent requirements: bash, git, python3, node 20+, docker (with compose v2), kubectl, kind.
+// No credentials are needed for stages 1-8; they never leave the agent.
 // ==============================================================================
 
 pipeline {
     agent any
 
-    // ── Global environment ─────────────────────────────────────────────────────
+    parameters {
+        booleanParam(name: 'RUN_COMPOSE_SMOKE', defaultValue: true,  description: 'Bring up the full Docker Compose stack and run end-to-end checks')
+        booleanParam(name: 'DEPLOY_LOCAL_K8S',  defaultValue: true,  description: 'Deploy to a local kind cluster and run the Kubernetes smoke test')
+        booleanParam(name: 'TEARDOWN_KIND',     defaultValue: false, description: 'Delete the kind cluster after the Kubernetes smoke test')
+        booleanParam(name: 'PUSH_IMAGES',       defaultValue: false, description: 'Push images to REGISTRY (credentials: coldguard-registry)')
+        booleanParam(name: 'DEPLOY_PRODUCTION', defaultValue: false, description: 'Deploy the production overlay (credentials: coldguard-prod-kubeconfig)')
+        choice(name: 'INGRESS_CONTROLLER', choices: ['nginx', 'traefik'], description: 'Ingress controller for the kind cluster (traefik if registry.k8s.io is unreachable)')
+        string(name: 'REGISTRY',     defaultValue: '', description: 'e.g. coldguardacr.azurecr.io/coldguard')
+        string(name: 'PROD_CONTEXT', defaultValue: '', description: 'kube context name inside the production kubeconfig')
+    }
+
     environment {
-        // Application metadata
-        APP_NAME        = 'coldguard'
-        IMAGE_BACKEND   = "${APP_NAME}-backend"
-        IMAGE_FRONTEND  = "${APP_NAME}-frontend"
-        IMAGE_SIMULATOR = "${APP_NAME}-simulator"
-
-        // Python virtualenv path (relative to workspace)
-        VENV_DIR = 'backend/.ci-venv'
-
-        // Azure ACR – disabled unless explicitly enabled via Jenkins config
-        // Never hard-code registry URLs or credentials here.
-        AZURE_ACR_ENABLED  = "${env.AZURE_ACR_ENABLED ?: 'false'}"
-        AZURE_ACR_REGISTRY = "${env.AZURE_ACR_REGISTRY ?: ''}"
-
-        // Docker Compose smoke-test container name (unique per build to avoid conflicts)
-        SMOKE_PROJECT = "cg_smoke_${env.BUILD_NUMBER}"
+        APP_VERSION  = '2.0.0'
+        CI           = 'true'
+        REPORTS_DIR  = "${WORKSPACE}/reports"
+        KUBE_CONTEXT = 'kind-coldguard'
+        SMOKE_PROJECT = "cg-smoke-${BUILD_NUMBER}"
+        UI_PORT      = '18080'           // Jenkins itself usually owns 8080
     }
 
-    // ── Pipeline-wide options ──────────────────────────────────────────────────
     options {
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 90, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '20'))
-        disableConcurrentBuilds()
-        ansiColor('xterm')
+        disableConcurrentBuilds()        // compose host ports and the kind cluster are shared
+        timestamps()
     }
 
-    // ── Stage definitions ──────────────────────────────────────────────────────
     stages {
-
-        // ── Stage 1: Checkout ────────────────────────────────────────────────
         stage('Checkout') {
             steps {
-                echo "==> Checking out source: branch=${env.BRANCH_NAME ?: 'unknown'}, commit=${env.GIT_COMMIT?.take(8) ?: 'N/A'}"
                 checkout scm
-            }
-        }
-
-        // ── Stage 2: Backend – Install Dependencies ──────────────────────────
-        stage('Backend: Install Dependencies') {
-            steps {
-                dir('backend') {
-                    sh '''
-                        echo "==> Creating Python virtual environment..."
-                        python3 -m venv ../${VENV_DIR}
-                        ../${VENV_DIR}/bin/pip install --upgrade pip --quiet
-
-                        echo "==> Installing backend dependencies..."
-                        ../${VENV_DIR}/bin/pip install -r requirements.txt --quiet
-
-                        echo "==> Installing test/lint extras..."
-                        ../${VENV_DIR}/bin/pip install \
-                            pytest \
-                            pytest-cov \
-                            pytest-html \
-                            ruff \
-                            --quiet
-
-                        echo "==> Dependency installation complete."
-                        ../${VENV_DIR}/bin/pip list | grep -E "fastapi|sqlalchemy|pytest|ruff|alembic"
-                    '''
-                }
-            }
-        }
-
-        // ── Stage 3: Backend – Lint ──────────────────────────────────────────
-        stage('Backend: Lint') {
-            steps {
-                dir('backend') {
-                    sh '''
-                        echo "==> Running ruff linter on app/ ..."
-                        ../${VENV_DIR}/bin/ruff check app/ --output-format=github || {
-                            echo "[WARNING] Lint issues found (non-blocking in CI — fix before merging to main)."
-                            exit 0
-                        }
-                        echo "==> Lint passed."
-                    '''
-                }
-            }
-        }
-
-        // ── Stage 4: Backend – Tests ─────────────────────────────────────────
-        stage('Backend: Tests') {
-            steps {
-                dir('backend') {
-                    sh '''
-                        echo "==> Running backend test suite..."
-                        ../${VENV_DIR}/bin/pytest tests/ \
-                            -v \
-                            --tb=short \
-                            --junitxml=../reports/backend-tests.xml \
-                            --html=../reports/backend-tests.html \
-                            --self-contained-html \
-                            --cov=app \
-                            --cov-report=xml:../reports/backend-coverage.xml \
-                            --cov-report=html:../reports/backend-coverage-html \
-                            --cov-report=term-missing \
-                            -q
-                    '''
-                }
-            }
-            post {
-                always {
-                    // Publish JUnit results
-                    junit allowEmptyResults: true,
-                          testResults: 'reports/backend-tests.xml'
-
-                    // Publish HTML test report
-                    publishHTML(target: [
-                        allowMissing:         true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll:              true,
-                        reportDir:            'reports',
-                        reportFiles:          'backend-tests.html',
-                        reportName:           'Backend Test Report'
-                    ])
-
-                    // Publish coverage HTML
-                    publishHTML(target: [
-                        allowMissing:         true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll:              true,
-                        reportDir:            'reports/backend-coverage-html',
-                        reportFiles:          'index.html',
-                        reportName:           'Backend Coverage Report'
-                    ])
-                }
-            }
-        }
-
-        // ── Stage 5: Frontend – Install Dependencies ─────────────────────────
-        stage('Frontend: Install Dependencies') {
-            steps {
-                dir('frontend') {
-                    sh '''
-                        echo "==> Installing frontend dependencies..."
-                        npm ci --prefer-offline
-                        echo "==> Done."
-                    '''
-                }
-            }
-        }
-
-        // ── Stage 6: Frontend – Tests ────────────────────────────────────────
-        stage('Frontend: Tests') {
-            steps {
-                dir('frontend') {
-                    sh '''
-                        echo "==> Running Vitest suite..."
-                        npm test -- --reporter=verbose --reporter=junit --outputFile=../reports/frontend-tests.xml
-                    '''
-                }
-            }
-            post {
-                always {
-                    junit allowEmptyResults: true,
-                          testResults: 'reports/frontend-tests.xml'
-                }
-            }
-        }
-
-        // ── Stage 7: Frontend – Build ────────────────────────────────────────
-        stage('Frontend: Build') {
-            steps {
-                dir('frontend') {
-                    sh '''
-                        echo "==> Building production bundle..."
-                        npm run build
-
-                        echo "==> Build output:"
-                        du -sh dist/
-                    '''
-                }
-            }
-            post {
-                success {
-                    // Archive the production bundle as a build artefact
-                    archiveArtifacts artifacts: 'frontend/dist/**',
-                                     fingerprint: true,
-                                     allowEmptyArchive: true
-                }
-            }
-        }
-
-        // ── Stage 8: Docker – Build Images ───────────────────────────────────
-        stage('Docker: Build') {
-            steps {
                 script {
-                    // Compute a unique tag: short git sha  (fallback to build number)
-                    def gitSha = sh(
-                        script: "git rev-parse --short HEAD 2>/dev/null || echo 'b${BUILD_NUMBER}'",
-                        returnStdout: true
-                    ).trim()
-                    env.GIT_SHA    = gitSha
-                    env.IMAGE_TAG  = gitSha
-                    env.BUILD_TAG  = "build-${BUILD_NUMBER}"
-
-                    echo "==> Building Docker images (tag: ${env.IMAGE_TAG})"
+                    env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                 }
-                sh '''
-                    echo "--- Building backend ---"
-                    docker build \
-                        -t ${IMAGE_BACKEND}:${IMAGE_TAG} \
-                        -t ${IMAGE_BACKEND}:latest \
-                        ./backend
-
-                    echo "--- Building frontend ---"
-                    docker build \
-                        -t ${IMAGE_FRONTEND}:${IMAGE_TAG} \
-                        -t ${IMAGE_FRONTEND}:latest \
-                        ./frontend
-
-                    echo "--- Building simulator ---"
-                    docker build \
-                        -t ${IMAGE_SIMULATOR}:${IMAGE_TAG} \
-                        -t ${IMAGE_SIMULATOR}:latest \
-                        ./simulator
-
-                    echo "==> Docker image sizes:"
-                    docker images | grep -E "${IMAGE_BACKEND}|${IMAGE_FRONTEND}|${IMAGE_SIMULATOR}"
-                '''
+                echo "==> ${env.BRANCH_NAME ?: 'detached'} @ ${env.IMAGE_TAG}"
             }
         }
 
-        // ── Stage 9: Docker Compose – Smoke Test ─────────────────────────────
-        stage('Docker Compose: Smoke Test') {
-            steps {
-                sh '''
-                    echo "==> Starting smoke test stack (project: ${SMOKE_PROJECT})..."
-                    docker compose \
-                        -p ${SMOKE_PROJECT} \
-                        up -d --no-build \
-                        postgres backend
-
-                    echo "==> Waiting for backend to become healthy (up to 60 s)..."
-                    for i in $(seq 1 12); do
-                        STATUS=$(docker inspect --format="{{.State.Health.Status}}" ${SMOKE_PROJECT}-backend-1 2>/dev/null || echo "starting")
-                        echo "  attempt ${i}/12 → ${STATUS}"
-                        if [ "${STATUS}" = "healthy" ]; then
-                            echo "==> Backend is healthy."
-                            break
-                        fi
-                        sleep 5
-                    done
-
-                    echo "==> Hitting /health endpoint..."
-                    docker run --rm \
-                        --network ${SMOKE_PROJECT}_default \
-                        curlimages/curl:8.5.0 \
-                        curl -sf http://${SMOKE_PROJECT}-backend-1:8000/health
-
-                    echo "==> Smoke test passed."
-                '''
+        stage('Build & test') {
+            parallel {
+                stage('Backend') {
+                    steps { sh 'bash scripts/ci/backend.sh' }
+                    post { always { junit allowEmptyResults: true, testResults: 'reports/backend-tests.xml' } }
+                }
+                stage('Frontend') {
+                    steps { sh 'bash scripts/ci/frontend.sh' }
+                    post {
+                        always  { junit allowEmptyResults: true, testResults: 'reports/frontend-tests.xml' }
+                        success { archiveArtifacts artifacts: 'frontend/dist/**', fingerprint: true, allowEmptyArchive: true }
+                    }
+                }
             }
+        }
+
+        stage('Config consistency') {
+            steps { sh 'bash scripts/ci/config-check.sh' }
+        }
+
+        stage('Security scan') {
+            steps { sh 'bash scripts/ci/security-scan.sh' }
+        }
+
+        stage('Docker images') {
+            steps { sh 'bash scripts/ci/build-images.sh' }
+        }
+
+        stage('Compose smoke test') {
+            when { expression { params.RUN_COMPOSE_SMOKE } }
+            steps { sh 'NO_BUILD=1 bash scripts/ci/compose-smoke.sh' }
+        }
+
+        stage('Kubernetes deploy (kind)') {
+            when { expression { params.DEPLOY_LOCAL_K8S } }
+            steps { sh "INGRESS_CONTROLLER=${params.INGRESS_CONTROLLER} bash scripts/ci/k8s-deploy.sh" }
+        }
+
+        stage('Kubernetes smoke test') {
+            when { expression { params.DEPLOY_LOCAL_K8S } }
+            steps { sh 'bash scripts/ci/k8s-smoke.sh' }
             post {
-                always {
+                failure {
                     sh '''
-                        echo "==> Tearing down smoke test stack..."
-                        docker compose -p ${SMOKE_PROJECT} down -v --remove-orphans 2>/dev/null || true
-                        echo "==> Cleanup done."
+                        kubectl --context "$KUBE_CONTEXT" -n coldguard get pods -o wide || true
+                        kubectl --context "$KUBE_CONTEXT" -n coldguard get events --sort-by=.lastTimestamp | tail -n 40 || true
+                        kubectl --context "$KUBE_CONTEXT" -n coldguard logs deploy/backend --tail=80 || true
+                    '''
+                }
+                always {
+                    script {
+                        if (params.TEARDOWN_KIND) { sh 'kind delete cluster --name coldguard || true' }
+                    }
+                }
+            }
+        }
+
+        stage('Push images') {
+            when { expression { params.PUSH_IMAGES && params.REGISTRY?.trim() } }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'coldguard-registry',
+                                                  usernameVariable: 'REG_USER', passwordVariable: 'REG_PASS')]) {
+                    sh '''
+                        echo "$REG_PASS" | docker login "${REGISTRY%%/*}" -u "$REG_USER" --password-stdin
+                        REGISTRY="$REGISTRY" bash scripts/ci/k8s-release.sh push
+                        docker logout "${REGISTRY%%/*}"
                     '''
                 }
             }
         }
 
-        // ── Stage 10: Push to Azure Container Registry (OPTIONAL) ────────────
-        // Disabled unless AZURE_ACR_ENABLED == "true"
-        // Configure via Jenkins Credentials ID: coldguard-acr-credentials
-        //   Username = ACR login server  (e.g. coldguardacr.azurecr.io)
-        //   Password = ACR access token or Service Principal secret
-        stage('ACR: Push Images') {
-            when {
-                environment name: 'AZURE_ACR_ENABLED', value: 'true'
-            }
+        stage('Deploy production') {
+            when { expression { params.DEPLOY_PRODUCTION && params.REGISTRY?.trim() && params.PROD_CONTEXT?.trim() } }
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'coldguard-acr-credentials',
-                        usernameVariable: 'ACR_SERVER',
-                        passwordVariable: 'ACR_TOKEN'
-                    )
-                ]) {
-                    sh '''
-                        echo "==> Logging in to Azure Container Registry: ${ACR_SERVER}"
-                        echo "${ACR_TOKEN}" | docker login "${ACR_SERVER}" \
-                            --username "00000000-0000-0000-0000-000000000000" \
-                            --password-stdin
-
-                        echo "==> Tagging images for ACR..."
-                        docker tag ${IMAGE_BACKEND}:${IMAGE_TAG}   ${ACR_SERVER}/${IMAGE_BACKEND}:${IMAGE_TAG}
-                        docker tag ${IMAGE_BACKEND}:latest         ${ACR_SERVER}/${IMAGE_BACKEND}:latest
-                        docker tag ${IMAGE_FRONTEND}:${IMAGE_TAG}  ${ACR_SERVER}/${IMAGE_FRONTEND}:${IMAGE_TAG}
-                        docker tag ${IMAGE_FRONTEND}:latest        ${ACR_SERVER}/${IMAGE_FRONTEND}:latest
-                        docker tag ${IMAGE_SIMULATOR}:${IMAGE_TAG} ${ACR_SERVER}/${IMAGE_SIMULATOR}:${IMAGE_TAG}
-                        docker tag ${IMAGE_SIMULATOR}:latest       ${ACR_SERVER}/${IMAGE_SIMULATOR}:latest
-
-                        echo "==> Pushing images..."
-                        docker push ${ACR_SERVER}/${IMAGE_BACKEND}:${IMAGE_TAG}
-                        docker push ${ACR_SERVER}/${IMAGE_BACKEND}:latest
-                        docker push ${ACR_SERVER}/${IMAGE_FRONTEND}:${IMAGE_TAG}
-                        docker push ${ACR_SERVER}/${IMAGE_FRONTEND}:latest
-                        docker push ${ACR_SERVER}/${IMAGE_SIMULATOR}:${IMAGE_TAG}
-                        docker push ${ACR_SERVER}/${IMAGE_SIMULATOR}:latest
-
-                        echo "==> All images pushed to ${ACR_SERVER}."
-                        docker logout "${ACR_SERVER}"
-                    '''
+                input message: "Deploy ${env.IMAGE_TAG} to production?", ok: 'Deploy'
+                withCredentials([file(credentialsId: 'coldguard-prod-kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh 'REGISTRY="$REGISTRY" KUBE_CONTEXT="$PROD_CONTEXT" ALLOW_REMOTE_CONTEXT=1 bash scripts/ci/k8s-release.sh deploy'
                 }
             }
         }
     }
 
-    // ── Post-pipeline actions ──────────────────────────────────────────────────
     post {
         always {
-            echo "==> Pipeline complete: ${currentBuild.currentResult}"
-
-            // Clean up dangling Docker images to prevent disk fill-up on agents
-            sh '''
-                docker image prune -f --filter "until=24h" 2>/dev/null || true
-            '''
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            sh 'docker image prune -f --filter "until=24h" >/dev/null 2>&1 || true'
         }
-        success {
-            echo "==> BUILD SUCCESS — ${APP_NAME} @ ${env.IMAGE_TAG ?: 'unknown'}"
-        }
-        failure {
-            echo "==> BUILD FAILED — review stage logs above."
-        }
-        unstable {
-            echo "==> BUILD UNSTABLE — some tests may have failed. Check test reports."
-        }
+        success { echo "==> BUILD SUCCESS — coldguard ${env.IMAGE_TAG}" }
+        failure { echo '==> BUILD FAILED — see the stage logs and archived reports/' }
     }
 }

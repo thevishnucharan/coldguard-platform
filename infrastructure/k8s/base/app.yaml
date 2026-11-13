@@ -9,7 +9,7 @@ spec:
     metadata: { labels: { app.kubernetes.io/name: coldguard-migrate, app.kubernetes.io/part-of: coldguard } }
     spec:
       restartPolicy: OnFailure
-      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: migrate
           image: coldguard-backend:2.0.0
@@ -30,6 +30,7 @@ kind: Deployment
 metadata: { name: backend }
 spec:
   replicas: 2
+  revisionHistoryLimit: 5
   strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
   selector: { matchLabels: { app.kubernetes.io/name: backend } }
   template:
@@ -38,12 +39,17 @@ spec:
       annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8000", prometheus.io/path: /metrics }
     spec:
       securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      terminationGracePeriodSeconds: 40
+      topologySpreadConstraints:
+        - { maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway,
+            labelSelector: { matchLabels: { app.kubernetes.io/name: backend } } }
       initContainers:
         - name: wait-for-migrations
           image: coldguard-backend:2.0.0
           command: ["python", "scripts/wait_for_migrations.py"]
           envFrom: [{ configMapRef: { name: coldguard-config } }, { secretRef: { name: coldguard-secrets } }]
           resources: { requests: { cpu: 20m, memory: 64Mi }, limits: { cpu: 200m, memory: 256Mi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
       containers:
         - name: api
           image: coldguard-backend:2.0.0
@@ -56,6 +62,8 @@ spec:
           startupProbe: { httpGet: { path: /health, port: http }, periodSeconds: 5, failureThreshold: 30 }
           livenessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 15, timeoutSeconds: 3 }
           readinessProbe: { httpGet: { path: /ready, port: http }, periodSeconds: 10, timeoutSeconds: 3 }
+          # let endpoints/ingress stop routing before uvicorn begins its graceful shutdown
+          lifecycle: { preStop: { exec: { command: ["sh", "-c", "sleep 8"] } } }
           resources: { requests: { cpu: 200m, memory: 384Mi }, limits: { cpu: "1", memory: 768Mi } }
           securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
 ---
@@ -67,6 +75,10 @@ spec:
   minReplicas: 2
   maxReplicas: 6
   metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } } }]
+  # scale on sustained load, not on a pod's start-up CPU burst; at most +2 pods per minute
+  behavior:
+    scaleUp: { stabilizationWindowSeconds: 60, policies: [{ type: Pods, value: 2, periodSeconds: 60 }] }
+    scaleDown: { stabilizationWindowSeconds: 300 }
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -84,6 +96,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: { name: worker }
 spec:
+  revisionHistoryLimit: 5
   replicas: 1                 # exactly one scheduler/MQTT consumer; Recreate avoids two active during rollout
   strategy: { type: Recreate }
   selector: { matchLabels: { app.kubernetes.io/name: worker } }
@@ -99,6 +112,8 @@ spec:
           command: ["python", "scripts/wait_for_migrations.py"]
           envFrom: [{ configMapRef: { name: coldguard-config } }, { secretRef: { name: coldguard-secrets } }]
           resources: { requests: { cpu: 20m, memory: 64Mi }, limits: { cpu: 200m, memory: 256Mi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+      terminationGracePeriodSeconds: 30   # finish the current job cycle, disconnect MQTT cleanly
       containers:
         - name: worker
           image: coldguard-backend:2.0.0
@@ -123,6 +138,7 @@ kind: Deployment
 metadata: { name: frontend }
 spec:
   replicas: 2
+  revisionHistoryLimit: 5
   strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
   selector: { matchLabels: { app.kubernetes.io/name: frontend } }
   template:
@@ -135,6 +151,7 @@ spec:
           ports: [{ containerPort: 8080, name: http }]
           livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 15 }
           readinessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 5 }
+          lifecycle: { preStop: { exec: { command: ["sh", "-c", "sleep 5"] } } }
           resources: { requests: { cpu: 20m, memory: 32Mi }, limits: { cpu: 300m, memory: 128Mi } }
           securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
 ---
@@ -146,6 +163,15 @@ spec:
   minReplicas: 2
   maxReplicas: 4
   metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 75 } } }]
+  # scale on sustained load, not on a pod's start-up CPU burst; at most +2 pods per minute
+  behavior:
+    scaleUp: { stabilizationWindowSeconds: 60, policies: [{ type: Pods, value: 2, periodSeconds: 60 }] }
+    scaleDown: { stabilizationWindowSeconds: 300 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: frontend }
+spec: { minAvailable: 1, selector: { matchLabels: { app.kubernetes.io/name: frontend } } }
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

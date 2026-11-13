@@ -36,5 +36,22 @@ configMapGenerator:
       - config/coldguard-application.json
       - config/coldguard-iot.json
       - config/coldguard-incidents.json
+patches:
+  # Only Prometheus and kube-state-metrics talk to the Kubernetes API; nothing else gets a token.
+  - target: { kind: Deployment, name: "backend|worker|frontend|redis|mosquitto|grafana|postgres-exporter|redis-exporter" }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/automountServiceAccountToken
+        value: false
+  - target: { kind: StatefulSet, name: postgres }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/automountServiceAccountToken
+        value: false
+  - target: { kind: Job, name: coldguard-migrate }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/automountServiceAccountToken
+        value: false
 # Secrets are NOT stored in git. Each overlay generates coldguard-secrets from a local,
 # git-ignored secrets.env (see overlays/local/secrets.env.example) or an external secret store.

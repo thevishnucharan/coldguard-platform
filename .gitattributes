@@ -1,0 +1,6 @@
+# shell scripts and container configs must keep LF (bash / sh in Linux containers break on CRLF)
+*.sh text eol=lf
+Jenkinsfile text eol=lf
+infrastructure/mosquitto/* text eol=lf
+infrastructure/k8s/base/config/* text eol=lf
+*.joblib binary

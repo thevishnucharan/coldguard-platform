@@ -15,8 +15,14 @@ configMapGenerator:
       - ENVIRONMENT=development
       - DEMO_MODE=true
       - SIMULATION_ENABLED=true
-      - BACKEND_CORS_ORIGINS=http://localhost:8088
+      - BACKEND_CORS_ORIGINS=http://coldguard.localhost:8088,http://localhost:8088
 patches:
+  # kind maps host port 8088 -> ingress-nginx :80 (kind/kind-config.yaml); *.localhost resolves to 127.0.0.1
+  - target: { kind: Ingress, name: coldguard }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: coldguard.localhost
   - target: { kind: Deployment, name: "backend|frontend" }
     patch: |-
       - op: replace
@@ -27,6 +33,9 @@ patches:
       - op: replace
         path: /spec/minReplicas
         value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2            # single-node laptop cluster
   - target: { kind: Deployment }
     patch: |-
       - op: add

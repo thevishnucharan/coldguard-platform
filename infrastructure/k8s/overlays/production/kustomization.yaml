@@ -1,0 +1,48 @@
+# Production overlay: images from the registry (tag set by CI: `kustomize edit set image`),
+# TLS ingress, production config. Secrets are NOT generated here — `coldguard-secrets` must
+# be created out-of-band (External Secrets Operator / Sealed Secrets / CI from a vault):
+#
+#   kubectl -n coldguard create secret generic coldguard-secrets --from-env-file=<vault export>
+#
+# Keys required: see ../local/secrets.env.example.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: coldguard
+resources: [../../base]
+images:
+  - { name: coldguard-backend, newName: REGISTRY/coldguard-backend, newTag: "2.0.0" }
+  - { name: coldguard-frontend, newName: REGISTRY/coldguard-frontend, newTag: "2.0.0" }
+configMapGenerator:
+  - name: coldguard-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=production
+      - DEMO_MODE=false
+      - SIMULATION_ENABLED=false
+      - LOG_LEVEL=INFO
+      - BACKEND_CORS_ORIGINS=https://coldguard.example.org
+patches:
+  - target: { kind: Ingress, name: coldguard }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: coldguard.example.org
+      - op: add
+        path: /spec/tls
+        value: [{ hosts: [coldguard.example.org], secretName: coldguard-tls }]
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1force-ssl-redirect
+        value: "true"
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt
+  - target: { kind: Deployment, name: "backend|frontend|worker" }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+  - target: { kind: StatefulSet, name: postgres }
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 20Gi

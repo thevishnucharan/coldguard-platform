@@ -107,6 +107,13 @@ class Settings(BaseSettings):
                 raise ValueError("SECRET_KEY must be set to a strong value (>=32 chars) outside development")
             if self.DEMO_MODE:
                 raise ValueError("DEMO_MODE must be false in staging/production")
+            insecure = [o for o in self.BACKEND_CORS_ORIGINS
+                        if not o.startswith("https://") and "localhost" not in o and "127.0.0.1" not in o]
+            if insecure:
+                raise ValueError(f"BACKEND_CORS_ORIGINS must use https outside development: {insecure}")
+        if "*" in self.BACKEND_CORS_ORIGINS:
+            # credentials are allowed, so a wildcard origin would let any site act as the user
+            raise ValueError("BACKEND_CORS_ORIGINS must list explicit origins; '*' is not allowed")
         return self
 
     @property

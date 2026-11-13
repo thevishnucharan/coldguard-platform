@@ -3,5 +3,9 @@ kind: Namespace
 metadata:
   name: coldguard
   labels:
-    pod-security.kubernetes.io/enforce: baseline
+    # every workload runs non-root, no privilege escalation, all capabilities dropped,
+    # RuntimeDefault seccomp — so the strictest Pod Security Standard is enforced
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

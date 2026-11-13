@@ -17,3 +17,8 @@ _*.log
 # Rendered manifests contain real secrets
 _k8s_rendered.yaml
 .pytest_cache/
+
+# CI scratch (rendered manifests, release kustomizations) and reports
+build/
+reports/*.xml
+backend/.ci-venv/
