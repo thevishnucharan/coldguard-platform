@@ -15,6 +15,8 @@ from app.core.logging import setup_logging
 def main():
     setup_logging()
     log = logging.getLogger("coldguard.worker")
+    from app.core.azure_monitor import configure_azure_monitor
+    configure_azure_monitor("coldguard-worker")   # optional Application Insights, alongside Prometheus
     from app.services.realtime import hub  # noqa: F401  (Redis publisher initialised lazily)
     from app.services.rbac import sync_rbac
     from app.db.session import SessionLocal

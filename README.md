@@ -39,6 +39,13 @@ UI at http://coldguard.localhost:8088. The deploy scripts only target local cont
 `minikube`, …). Details (topology, probes, HPA, NetworkPolicies, secrets, production overlay):
 [docs/KUBERNETES.md](docs/KUBERNETES.md).
 
+## Option D — Azure (AKS + managed PostgreSQL + Key Vault)
+
+Terraform in `infrastructure/azure/terraform` provisions AKS (workload identity, Key Vault CSI,
+KEDA, Container Insights, managed Prometheus), ACR, PostgreSQL Flexible Server and Key Vault;
+`infrastructure/k8s/overlays/azure` deploys on top of the same Kubernetes base. See
+[docs/AZURE.md](docs/AZURE.md).
+
 ## CI/CD
 
 `Jenkinsfile` runs the phases in `scripts/ci/`: backend/frontend tests, Compose↔k8s config

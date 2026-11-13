@@ -98,3 +98,48 @@ def test_metrics_aggregate_across_uvicorn_worker_processes(tmp_path):
                          capture_output=True, text=True, timeout=60).stdout
     line = next(x for x in out.splitlines() if x.startswith("coldguard_http_requests_total{"))
     assert line.endswith(" 2.0")
+
+
+# ------------------------------------------------------------------ Azure Monitor (optional)
+def test_azure_monitor_is_off_without_connection_string(monkeypatch):
+    from app.core import azure_monitor
+    monkeypatch.setattr(azure_monitor, "_configured", False)
+    monkeypatch.delenv("APPLICATIONINSIGHTS_CONNECTION_STRING", raising=False)
+    assert azure_monitor.configure_azure_monitor() is False
+
+
+def test_azure_monitor_degrades_when_package_missing(monkeypatch, caplog):
+    import builtins
+    from app.core import azure_monitor
+    monkeypatch.setattr(azure_monitor, "_configured", False)
+    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=00000000-0000-0000-0000-000000000000")
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **kw):
+        if name.startswith("azure.monitor"):
+            raise ImportError(name)
+        return real_import(name, *a, **kw)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert azure_monitor.configure_azure_monitor() is False
+    assert "not installed" in caplog.text
+
+
+def test_azure_monitor_configures_exporter_with_masking(monkeypatch):
+    import sys
+    import types
+    from app.core import azure_monitor
+    calls = {}
+    pkg = types.ModuleType("azure.monitor.opentelemetry")
+
+    def fake_configure(**kw):
+        calls.update(kw)
+        logging.getLogger("coldguard").addHandler(logging.NullHandler())
+    pkg.configure_azure_monitor = fake_configure
+    monkeypatch.setitem(sys.modules, "azure.monitor.opentelemetry", pkg)
+    monkeypatch.setattr(azure_monitor, "_configured", False)
+    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=abc")
+    assert azure_monitor.configure_azure_monitor("coldguard-test") is True
+    assert calls["connection_string"] == "InstrumentationKey=abc" and calls["logger_name"] == "coldguard"
+    assert 0 < calls["sampling_ratio"] <= 1
+    assert any(isinstance(f, SensitiveDataFilter) for h in logging.getLogger("coldguard").handlers for f in h.filters)
+    monkeypatch.setattr(azure_monitor, "_configured", False)

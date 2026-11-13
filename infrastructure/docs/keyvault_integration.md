@@ -51,6 +51,14 @@ The following credentials will be migrated to Azure Key Vault:
 - `AZURE_OPENAI_API_KEY` (Azure OpenAI inference API key)
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` (Azure Monitor telemetry key)
 
+### Implementation status
+
+Implemented. Terraform (`infrastructure/azure/terraform`) creates the vault, generates the
+secrets and grants the workload identity **Key Vault Secrets User**. The AKS overlay
+(`infrastructure/k8s/overlays/azure/secret-provider-class.yaml`) syncs them into
+`coldguard-secrets`. See [docs/AZURE.md](../../docs/AZURE.md). The original roadmap is kept below
+for reference.
+
 ### Implementation Roadmap
 
 *Note: Actual Azure SDK authentication code and AKS CSI configuration is intentionally deferred until production cloud credentials and infrastructure are fully provisioned.*

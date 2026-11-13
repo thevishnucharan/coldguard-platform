@@ -15,6 +15,8 @@ infrastructure/k8s/
     config/                 ConfigMap sources (Prometheus, alerts, Grafana, Mosquitto)
   overlays/local/           kind/minikube: demo mode, 1 replica, local images, secrets.env (git-ignored)
   overlays/production/      registry images, TLS ingress, production config, secrets from an external store
+  overlays/azure/           AKS: managed PostgreSQL, Key Vault + workload identity, KEDA, internal MQTT LB (docs/AZURE.md)
+  azure-monitor/            Azure Monitor agent settings for AKS (kube-system)
   kind/kind-config.yaml     single-node kind cluster, host port 8088 -> ingress controller :80
   kind/traefik.yaml         fallback ingress controller for kind when registry.k8s.io is unreachable
 ```

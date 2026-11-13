@@ -5,8 +5,11 @@ ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-COPY requirements.txt .
+COPY requirements.txt requirements-azure.txt ./
 RUN pip install -r requirements.txt
+# Azure deployments: --build-arg INSTALL_AZURE_MONITOR=true adds Application Insights export
+ARG INSTALL_AZURE_MONITOR=false
+RUN if [ "$INSTALL_AZURE_MONITOR" = "true" ]; then pip install -r requirements-azure.txt; fi
 
 # ---------------------------------------------------------------- runtime stage
 FROM python:3.14-slim AS runtime

@@ -1,0 +1,12 @@
+# The only identity that can read ColdGuard secrets. Federated (Terraform:
+# azurerm_federated_identity_credential.app) with a user-assigned managed identity that holds
+# exactly one Azure role: "Key Vault Secrets User" on the ColdGuard vault.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coldguard-app
+  labels: { azure.workload.identity/use: "true" }
+  annotations:
+    azure.workload.identity/client-id: placeholder   # replaced from azure-params
+    azure.workload.identity/tenant-id: placeholder
+automountServiceAccountToken: false   # the workload-identity webhook projects its own short-lived token

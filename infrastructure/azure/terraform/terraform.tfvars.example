@@ -1,0 +1,7 @@
+# Copy to <env>.tfvars (git-ignored). No secrets here: Terraform generates them into Key Vault.
+subscription_id        = "00000000-0000-0000-0000-000000000000"
+environment            = "production"
+location               = "centralindia"
+public_hostname        = "coldguard.example.org"
+admin_group_object_ids = ["00000000-0000-0000-0000-000000000000"]
+devices_cidr           = "10.40.0.0/16"

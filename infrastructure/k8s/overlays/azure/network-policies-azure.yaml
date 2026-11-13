@@ -1,0 +1,29 @@
+# Additional allow rules needed only on AKS (the base default-deny stays in force):
+#  * Azure Monitor managed Prometheus (ama-metrics, kube-system) scrapes the same
+#    prometheus.io-annotated pods as the in-cluster Prometheus
+#  * the KEDA operator (kube-system) queries the in-cluster Prometheus for the request-rate trigger
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: azure-monitor-scrape }
+spec:
+  podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [backend, worker, postgres-exporter, redis-exporter, kube-state-metrics] }] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchExpressions: [{ key: rsName, operator: In, values: [ama-metrics] }] }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchExpressions: [{ key: dsName, operator: In, values: [ama-metrics-node] }] }
+      ports: [{ port: 8000 }, { port: 9101 }, { port: 9187 }, { port: 9121 }, { port: 8080 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: prometheus-from-keda }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: prometheus } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { app: keda-operator } }
+      ports: [{ port: 9090 }]

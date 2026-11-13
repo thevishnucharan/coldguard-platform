@@ -1,0 +1,29 @@
+# MQTT is never public on Azure: devices / gateways reach the broker through an INTERNAL Azure
+# load balancer in the VNet (VPN / ExpressRoute / private network), restricted to DEVICES_CIDR.
+# In-cluster clients keep using the ClusterIP service `mosquitto`. Broker data (retained
+# messages, QoS 1 sessions) persists on the managed-csi PVC from the base.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mosquitto-devices
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: snet-aks
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local          # keep the device source IP for the NetworkPolicy
+  loadBalancerSourceRanges: [placeholder]   # DEVICES_CIDR (replaced from azure-params)
+  selector: { app.kubernetes.io/name: mosquitto }
+  ports: [{ name: mqtt, port: 1883, targetPort: 1883 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: mqtt-from-app-and-devices }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: mosquitto } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { tier: app } } }]          # MQTT ingestor (worker)
+      ports: [{ port: 1883 }]
+    - from: [{ ipBlock: { cidr: placeholder } }]                         # DEVICES_CIDR via internal LB
+      ports: [{ port: 1883 }]

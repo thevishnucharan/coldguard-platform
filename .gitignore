@@ -22,3 +22,13 @@ _k8s_rendered.yaml
 build/
 reports/*.xml
 backend/.ci-venv/
+
+# Terraform (state and real tfvars hold environment details; the lock file IS committed)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+# Azure overlay parameters generated from terraform output
+infrastructure/k8s/overlays/azure/azure-params.env

@@ -1,0 +1,30 @@
+# API autoscaling on AKS (KEDA add-on): CPU, memory AND request rate. KEDA owns the HPA it
+# generates, so the base `backend` HPA is removed in this overlay. Same scale-up damping as the
+# base HPA so a pod's start-up burst does not trigger scale-out.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: backend
+spec:
+  scaleTargetRef: { name: backend }
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp: { stabilizationWindowSeconds: 60, policies: [{ type: Pods, value: 2, periodSeconds: 60 }] }
+        scaleDown: { stabilizationWindowSeconds: 300 }
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata: { value: "70" }
+    - type: memory
+      metricType: Utilization
+      metadata: { value: "80" }
+    # custom metric: API requests/s per replica from the in-cluster Prometheus
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.coldguard.svc:9090
+        query: sum(rate(coldguard_http_requests_total{job="coldguard-api"}[2m]))
+        threshold: "40"
+        activationThreshold: "5"

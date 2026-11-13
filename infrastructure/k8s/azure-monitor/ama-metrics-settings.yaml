@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ama-metrics-settings-configmap
+data:
+  schema-version: v1
+  config-version: ver1
+  prometheus-collector-settings: |-
+    cluster_alias = "coldguard"
+  default-scrape-settings-enabled: |-
+    kubelet = true
+    coredns = false
+    cadvisor = true
+    kubeproxy = false
+    apiserver = false
+    kubestate = true
+    nodeexporter = true
+    windowsexporter = false
+    windowskubeproxy = false
+    kappiebasic = true
+    networkobservabilityRetina = false
+    networkobservabilityHubble = false
+    networkobservabilityCilium = false
+    prometheuscollectorhealth = true
+    controlplane-apiserver = false
+    controlplane-etcd = false
+  pod-annotation-based-scraping: |-
+    podannotationnamespaceregex = "coldguard"
+  default-targets-metrics-keep-list: |-
+    kubelet = ""
+    cadvisor = ""
+    kubestate = ""
+    nodeexporter = ""
+  default-targets-scrape-interval-settings: |-
+    kubelet = "30s"
+    cadvisor = "30s"
+    kubestate = "30s"
+    nodeexporter = "30s"
+    podannotations = "15s"
+  debug-mode: |-
+    enabled = false

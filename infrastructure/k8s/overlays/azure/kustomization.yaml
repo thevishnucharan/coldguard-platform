@@ -1,0 +1,178 @@
+# Azure (AKS) overlay — reuses every base control (probes, PDBs, HPAs, NetworkPolicies,
+# restricted Pod Security, preStop drains) and adds:
+#   * Azure Database for PostgreSQL Flexible Server instead of the in-cluster StatefulSet
+#   * secrets from Azure Key Vault (Secrets Store CSI driver -> synced `coldguard-secrets`)
+#   * AKS Workload Identity: pods that need secrets run as `coldguard-app`, federated with a
+#     managed identity that may only READ this Key Vault
+#   * Azure disk storage (managed-csi), AKS app-routing ingress with a Key Vault TLS certificate
+#   * MQTT on an INTERNAL load balancer, NetworkPolicy limited to the app tier + device network
+#   * KEDA autoscaling for the API on CPU, memory and request rate (Prometheus)
+#   * Azure Monitor managed Prometheus / Container Insights access (see ../../azure-monitor)
+#
+# Environment values come from azure-params.env (git-ignored, written by
+# scripts/ci/azure-deploy.sh from `terraform output`; see azure-params.env.example).
+# Images are pinned to ACR by the deploy script (images: newName/newTag).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: coldguard
+resources:
+  - ../../base
+  - workload-identity.yaml
+  - secret-provider-class.yaml
+  - mqtt-internal.yaml
+  - keda-backend.yaml
+  - network-policies-azure.yaml
+
+configMapGenerator:
+  - name: azure-params
+    envs: [azure-params.env]
+    options:
+      disableNameSuffixHash: true
+      annotations: { config.kubernetes.io/local-config: "true" }   # input only, never deployed
+  - name: coldguard-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=production
+      - DEMO_MODE=false
+      - SIMULATION_ENABLED=false
+      - LOG_LEVEL=INFO
+      - BACKEND_CORS_ORIGINS=https://placeholder.invalid   # replaced from azure-params
+
+patches:
+  # ---- managed PostgreSQL: drop the in-cluster database
+  - patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata: { name: postgres }
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata: { name: postgres }
+  # ---- API scales with KEDA (CPU + memory + request rate) instead of the CPU/memory HPA
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: backend }
+  # ---- MQTT: devices only via the internal LB / device network (replaces "from anywhere")
+  - patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata: { name: mqtt-from-devices }
+  # backend/worker/postgres-exporter have no volumes list yet in base -> create it first
+  - target: { kind: Deployment, name: "backend|worker|postgres-exporter" }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value: []
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value: []
+  # ---- Workload Identity + Key Vault CSI volume for every pod that reads coldguard-secrets
+  - target: { kind: Deployment, name: "backend|worker|mosquitto|grafana|postgres-exporter" }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/serviceAccountName
+        value: coldguard-app
+      - op: add
+        path: /spec/template/metadata/labels/azure.workload.identity~1use
+        value: "true"
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value: { name: secrets-store, csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: coldguard-kv } } }
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: { name: secrets-store, mountPath: /mnt/secrets-store, readOnly: true }
+  - target: { kind: Job, name: coldguard-migrate }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/serviceAccountName
+        value: coldguard-app
+      - op: add
+        path: /spec/template/metadata/labels/azure.workload.identity~1use
+        value: "true"
+      - op: add
+        path: /spec/template/spec/volumes
+        value: [{ name: secrets-store, csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: coldguard-kv } } }]
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value: [{ name: secrets-store, mountPath: /mnt/secrets-store, readOnly: true }]
+      - op: replace
+        path: /spec/template/spec/containers/0/command
+        value: ["sh", "-c", "python scripts/migrate.py"]   # no demo seed in Azure
+  # ---- Azure disks for every PVC
+  - target: { kind: PersistentVolumeClaim }
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: managed-csi
+  # ---- AKS application routing (managed NGINX) with the TLS certificate from Key Vault
+  - target: { kind: Ingress, name: coldguard }
+    patch: |-
+      - op: replace
+        path: /spec/ingressClassName
+        value: webapprouting.kubernetes.azure.com
+      - op: add
+        path: /spec/tls
+        value: [{ hosts: [placeholder.invalid], secretName: coldguard-tls }]
+      - op: add
+        path: /metadata/annotations/kubernetes.azure.com~1tls-cert-keyvault-uri
+        value: placeholder
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1force-ssl-redirect
+        value: "true"
+  - target: { kind: Deployment, name: "backend|frontend|worker" }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+
+replacements:
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.AZURE_CLIENT_ID }
+    targets:
+      - select: { kind: ServiceAccount, name: coldguard-app }
+        fieldPaths:
+          - metadata.annotations.[azure.workload.identity/client-id]
+      - select: { kind: SecretProviderClass, name: coldguard-kv }
+        fieldPaths:
+          - spec.parameters.clientID
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.AZURE_TENANT_ID }
+    targets:
+      - select: { kind: ServiceAccount, name: coldguard-app }
+        fieldPaths:
+          - metadata.annotations.[azure.workload.identity/tenant-id]
+      - select: { kind: SecretProviderClass, name: coldguard-kv }
+        fieldPaths:
+          - spec.parameters.tenantId
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.KEY_VAULT_NAME }
+    targets:
+      - select: { kind: SecretProviderClass, name: coldguard-kv }
+        fieldPaths:
+          - spec.parameters.keyvaultName
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.PUBLIC_HOSTNAME }
+    targets:
+      - select: { kind: Ingress, name: coldguard }
+        fieldPaths:
+          - spec.rules.0.host
+          - spec.tls.0.hosts.0
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.TLS_CERT_KEYVAULT_URI }
+    targets:
+      - select: { kind: Ingress, name: coldguard }
+        fieldPaths:
+          - metadata.annotations.[kubernetes.azure.com/tls-cert-keyvault-uri]
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.BACKEND_CORS_ORIGINS }
+    targets:
+      - select: { kind: ConfigMap, name: coldguard-config }
+        fieldPaths:
+          - data.BACKEND_CORS_ORIGINS
+  - source: { kind: ConfigMap, name: azure-params, fieldPath: data.DEVICES_CIDR }
+    targets:
+      - select: { kind: Service, name: mosquitto-devices }
+        fieldPaths:
+          - spec.loadBalancerSourceRanges.0
+      - select: { kind: NetworkPolicy, name: mqtt-from-app-and-devices }
+        fieldPaths:
+          - spec.ingress.1.from.0.ipBlock.cidr

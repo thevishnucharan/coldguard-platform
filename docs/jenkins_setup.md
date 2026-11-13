@@ -19,8 +19,10 @@ PYTHON_BIN=backend/venv/Scripts/python.exe scripts/ci/run-all.sh   # reuse a loc
 | 6 | Compose smoke test | `compose-smoke.sh`: full stack with throw-away secrets; probes, auth/RBAC, REST + MQTT ingestion, Prometheus targets and signals, Grafana provisioning, restart policy, Postgres persistence | `RUN_COMPOSE_SMOKE` |
 | 7 | Kubernetes deploy (kind) | `k8s-deploy.sh`: creates `kind-coldguard` (ingress-nginx, metrics-server) if needed, loads images, applies `overlays/local` | `DEPLOY_LOCAL_K8S` |
 | 8 | Kubernetes smoke test | `k8s-smoke.sh`: the shared checks via the ingress, plus HPA metrics, NetworkPolicy isolation, zero-downtime rolling update, self-healing, PVC persistence | `DEPLOY_LOCAL_K8S` |
-| 9 | Push images | `k8s-release.sh push` | `PUSH_IMAGES` + `REGISTRY` |
-| 10 | Deploy production | `k8s-release.sh deploy` after manual approval | `DEPLOY_PRODUCTION` + `PROD_CONTEXT` |
+| 9 | Azure: Terraform | `azure-infra.sh`: init (remote state), fmt, validate, plan; apply only the plan from the same run, after approval | `AZURE_INFRA` = plan / apply |
+| 10 | Azure: Deploy to AKS | `azure-deploy.sh`: backend image with the App Insights exporter, ACR push, `overlays/azure`, wait for migration + rollouts, verify the Key Vault sync (approval) | `AZURE_DEPLOY` |
+| 11 | Push images | `k8s-release.sh push` (generic registry) | `PUSH_IMAGES` + `REGISTRY` |
+| 12 | Deploy production | `k8s-release.sh deploy` after manual approval (generic cluster) | `DEPLOY_PRODUCTION` + `PROD_CONTEXT` |
 
 JUnit results (`reports/*.xml`) are published, and `reports/` plus `frontend/dist` are archived.
 
@@ -45,12 +47,20 @@ A kubeconfig on the agent that points at a real cluster is never touched by stag
    suggested-plugins set).
 3. Build with parameters. The defaults run stages 1–8.
 
-## Credentials (only for stages 9–10)
+## Credentials (only for stages 9–12)
 
 | ID | Type | Used for |
 |---|---|---|
 | `coldguard-registry` | Username with password | `docker login` to the registry host in `REGISTRY` (Azure ACR: service principal id / secret) |
 | `coldguard-prod-kubeconfig` | Secret file | kubeconfig for the production cluster; `PROD_CONTEXT` selects the context |
+| `coldguard-azure-sp` | Username with password | Azure service principal (client id / secret) for Terraform and the AKS deploy |
+| `coldguard-azure-tenant`, `coldguard-azure-subscription` | Secret text | Entra tenant id and subscription id |
+| `coldguard-tfstate` | Username with password | Terraform remote state: resource group / storage account |
+| `coldguard-tfvars-staging`, `coldguard-tfvars-production` | Secret file | Terraform variables per environment (see `terraform.tfvars.example`) |
+
+Azure stages (`AZURE_INFRA` = plan / apply, `AZURE_DEPLOY`) are described in [AZURE.md](AZURE.md).
+Both ask for manual approval before changing anything in Azure; the agent additionally needs
+Terraform ≥ 1.6, the Azure CLI and kubelogin.
 
 The production `coldguard-secrets` Secret must already exist in the cluster (External Secrets /
 Sealed Secrets / vault). The pipeline never creates or prints application secrets.

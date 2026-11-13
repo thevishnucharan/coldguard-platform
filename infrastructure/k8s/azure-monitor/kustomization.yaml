@@ -1,0 +1,9 @@
+# Azure Monitor agent settings for AKS (applied by scripts/ci/azure-deploy.sh into kube-system,
+# separately from the app overlay because these objects live outside the coldguard namespace).
+#   * managed Prometheus (ama-metrics) scrapes every prometheus.io-annotated pod in `coldguard`
+#     — the same targets as the in-cluster Prometheus, so Grafana and Azure Monitor agree
+#   * Container Insights (ama-logs) collects the structured JSON stdout logs of `coldguard`
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kube-system
+resources: [ama-metrics-settings.yaml, container-insights-config.yaml]

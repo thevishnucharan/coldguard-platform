@@ -13,8 +13,10 @@
 //   7. Kubernetes deploy (kind)     local cluster: ingress-nginx, metrics-server, kustomize overlay
 //   8. Kubernetes smoke test        ingress, RBAC, MQTT, Prometheus/Grafana, HPA, NetworkPolicy,
 //                                   zero-downtime rollout, self-healing, persistence
-//   9. Push images                  [PUSH_IMAGES]        registry credentials from Jenkins
-//  10. Deploy production            [DEPLOY_PRODUCTION]  manual approval + kubeconfig credential
+//   9. Azure: Terraform              [AZURE_INFRA]        plan / apply (approval) — AKS, ACR, PostgreSQL, Key Vault
+//  10. Azure: Deploy to AKS          [AZURE_DEPLOY]       ACR push + overlays/azure (approval)
+//  11. Push images                  [PUSH_IMAGES]        generic registry credentials from Jenkins
+//  12. Deploy production            [DEPLOY_PRODUCTION]  generic cluster: manual approval + kubeconfig credential
 //
 // Agent requirements: bash, git, python3, node 20+, docker (with compose v2), kubectl, kind.
 // No credentials are needed for stages 1-8; they never leave the agent.
@@ -32,6 +34,9 @@ pipeline {
         choice(name: 'INGRESS_CONTROLLER', choices: ['nginx', 'traefik'], description: 'Ingress controller for the kind cluster (traefik if registry.k8s.io is unreachable)')
         string(name: 'REGISTRY',     defaultValue: '', description: 'e.g. coldguardacr.azurecr.io/coldguard')
         string(name: 'PROD_CONTEXT', defaultValue: '', description: 'kube context name inside the production kubeconfig')
+        choice(name: 'AZURE_INFRA', choices: ['none', 'plan', 'apply'], description: 'Terraform for Azure (AKS, ACR, PostgreSQL, Key Vault, Azure Monitor)')
+        booleanParam(name: 'AZURE_DEPLOY', defaultValue: false, description: 'Push images to ACR and deploy the Azure overlay to AKS (manual approval)')
+        choice(name: 'AZURE_ENV', choices: ['staging', 'production'], description: 'Azure environment (tfvars + state key)')
     }
 
     environment {
@@ -114,6 +119,55 @@ pipeline {
                     script {
                         if (params.TEARDOWN_KIND) { sh 'kind delete cluster --name coldguard || true' }
                     }
+                }
+            }
+        }
+
+        // ── Azure ────────────────────────────────────────────────────────────
+        // Credentials: coldguard-azure-sp (username = client id, password = secret),
+        // coldguard-azure-tenant / coldguard-azure-subscription (secret text),
+        // coldguard-tfstate (username = state resource group, password = state storage account).
+        stage('Azure: Terraform') {
+            when { expression { params.AZURE_INFRA != 'none' } }
+            steps {
+                script {
+                    if (params.AZURE_INFRA == 'apply') { input message: "Apply Terraform to Azure ${params.AZURE_ENV}?", ok: 'Apply' }
+                }
+                withCredentials([
+                    usernamePassword(credentialsId: 'coldguard-azure-sp', usernameVariable: 'ARM_CLIENT_ID', passwordVariable: 'ARM_CLIENT_SECRET'),
+                    string(credentialsId: 'coldguard-azure-tenant', variable: 'ARM_TENANT_ID'),
+                    string(credentialsId: 'coldguard-azure-subscription', variable: 'ARM_SUBSCRIPTION_ID'),
+                    usernamePassword(credentialsId: 'coldguard-tfstate', usernameVariable: 'TF_BACKEND_RESOURCE_GROUP', passwordVariable: 'TF_BACKEND_STORAGE_ACCOUNT'),
+                    file(credentialsId: "coldguard-tfvars-${params.AZURE_ENV}", variable: 'TFVARS_FILE'),
+                ]) {
+                    sh '''
+                        cp "$TFVARS_FILE" "infrastructure/azure/terraform/${AZURE_ENV}.tfvars"
+                        AZURE_ENV="${AZURE_ENV}" TF_ACTION="${AZURE_INFRA}" bash scripts/ci/azure-infra.sh
+                        rm -f "infrastructure/azure/terraform/${AZURE_ENV}.tfvars"
+                    '''
+                }
+            }
+        }
+
+        stage('Azure: Deploy to AKS') {
+            when { expression { params.AZURE_DEPLOY } }
+            steps {
+                input message: "Deploy ${env.IMAGE_TAG} to Azure ${params.AZURE_ENV}?", ok: 'Deploy'
+                withCredentials([
+                    usernamePassword(credentialsId: 'coldguard-azure-sp', usernameVariable: 'AZURE_CLIENT_ID', passwordVariable: 'AZURE_CLIENT_SECRET'),
+                    string(credentialsId: 'coldguard-azure-tenant', variable: 'AZURE_TENANT_ID'),
+                    string(credentialsId: 'coldguard-azure-subscription', variable: 'AZURE_SUBSCRIPTION_ID'),
+                    usernamePassword(credentialsId: 'coldguard-tfstate', usernameVariable: 'TF_BACKEND_RESOURCE_GROUP', passwordVariable: 'TF_BACKEND_STORAGE_ACCOUNT'),
+                ]) {
+                    sh '''
+                        export ARM_CLIENT_ID="$AZURE_CLIENT_ID" ARM_CLIENT_SECRET="$AZURE_CLIENT_SECRET" \
+                               ARM_TENANT_ID="$AZURE_TENANT_ID" ARM_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
+                        terraform -chdir=infrastructure/azure/terraform init -input=false -reconfigure \
+                          -backend-config="resource_group_name=$TF_BACKEND_RESOURCE_GROUP" \
+                          -backend-config="storage_account_name=$TF_BACKEND_STORAGE_ACCOUNT" \
+                          -backend-config="container_name=tfstate" -backend-config="key=coldguard-${AZURE_ENV}.tfstate" >/dev/null
+                        AZURE_ENV="${AZURE_ENV}" bash scripts/ci/azure-deploy.sh all
+                    '''
                 }
             }
         }

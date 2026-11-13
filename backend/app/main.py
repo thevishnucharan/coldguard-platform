@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
     from app.services.rbac import sync_rbac
     from app.services.realtime import hub
     logger.info("Starting ColdGuard API %s (%s)", settings.VERSION, settings.ENVIRONMENT)
+    from app.core.azure_monitor import configure_azure_monitor
+    configure_azure_monitor("coldguard-api")   # optional Application Insights, alongside Prometheus
     db = SessionLocal()
     try:
         sync_rbac(db)
