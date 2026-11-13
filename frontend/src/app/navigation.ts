@@ -1,6 +1,6 @@
 import {
   Activity, BarChart3, Boxes, Building2, CalendarCheck, ClipboardCheck, ClipboardList, Cpu, FileText, FlaskConical,
-  Gauge, LayoutDashboard, Map, ScrollText, Settings2, ShieldAlert, ShieldCheck, Thermometer, Users, Wrench,
+  Gauge, LayoutDashboard, Map, Route, ScrollText, Settings2, ShieldAlert, ShieldCheck, Thermometer, Users, Wrench,
 } from 'lucide-react'
 import type { Role } from '../types'
 
@@ -15,6 +15,7 @@ export const NAV: Record<Role, NavSection[]> = {
       { label: 'Facilities', to: '/admin/facilities', icon: Building2, perm: ['facilities.view'] },
       { label: 'Users & access', to: '/admin/users', icon: Users, perm: ['users.view'] },
       { label: 'Device registry', to: '/admin/devices', icon: Cpu, perm: ['devices.view'] },
+      { label: 'Excursion routing', to: '/admin/logistics', icon: Route, perm: ['logistics.view'] },
     ] },
     { title: 'Oversight', items: [
       { label: 'Live monitoring', to: '/monitoring', icon: Thermometer, perm: ['monitoring.view'] },

@@ -157,3 +157,14 @@ export const System = {
   setScenario: (sensor_id: string, scenario: string) => post('/demo/simulation/scenario', { sensor_id, scenario }),
   resetDemo: () => post<Any>('/demo/reset', { confirm: 'RESET DEMO DATA' }),
 }
+
+export interface RoutePlanParams { max_trip_minutes: number; vehicle_capacity_litres: number; vehicles: number; persist?: boolean }
+export const Logistics = {
+  model: () => get<Any>('/logistics/model'),
+  excursions: () => get<Any[]>('/logistics/excursions'),
+  plans: (params?: Params) => get<Any[]>('/logistics/route-plans', params),
+  plan: (id: string) => get<Any>(`/logistics/route-plans/${id}`),
+  optimise: (b: { incident_id?: string; storage_unit_id?: string } & RoutePlanParams) => post<Any>('/logistics/route-plans', b),
+  approve: (id: string, note?: string) => post<Any>(`/logistics/route-plans/${id}/approve`, { note }),
+  cancel: (id: string, note: string) => post<Any>(`/logistics/route-plans/${id}/cancel`, { note }),
+}

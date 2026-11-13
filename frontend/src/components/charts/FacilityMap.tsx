@@ -57,7 +57,7 @@ function pinIcon(f: FacilitySummary, selected: boolean) {
   })
 }
 
-function tiles(theme: 'light' | 'dark') {
+export function tiles(theme: 'light' | 'dark') {
   const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas'
   const base = theme === 'dark' ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base'
   const ref = theme === 'dark' ? 'World_Dark_Gray_Reference' : 'World_Light_Gray_Reference'

@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
@@ -89,8 +89,8 @@ async def unhandled(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "An unexpected internal server error occurred."})
 
 
-from app.api import (audit, auth, dashboards, incidents, inventory, maintenance, monitoring, notifications,  # noqa: E402
-                     org, reports, sensors, storage, system, users, ws)
+from app.api import (audit, auth, dashboards, incidents, inventory, logistics, maintenance, monitoring,  # noqa: E402
+                     notifications, org, reports, sensors, storage, system, users, ws)
 
 P = settings.API_V1_STR
 app.include_router(auth.router, prefix=f"{P}/auth", tags=["auth"])
@@ -109,6 +109,7 @@ app.include_router(inventory.inventory, prefix=f"{P}/inventory", tags=["inventor
 app.include_router(maintenance.router, prefix=f"{P}/maintenance", tags=["maintenance"])
 app.include_router(maintenance.calibration, prefix=f"{P}/calibration", tags=["calibration"])
 app.include_router(maintenance.equipment, prefix=f"{P}/equipment", tags=["equipment"])
+app.include_router(logistics.router, prefix=f"{P}/logistics", tags=["logistics"])
 app.include_router(notifications.router, prefix=f"{P}/notifications", tags=["notifications"])
 app.include_router(dashboards.router, prefix=f"{P}/dashboards", tags=["dashboards"])
 app.include_router(dashboards.analytics_router, prefix=f"{P}/analytics", tags=["analytics"])
@@ -151,4 +152,5 @@ def api_health():
 
 @app.get("/metrics", include_in_schema=False)
 def metrics():
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    from app.core.metrics import metrics_payload
+    return Response(metrics_payload(), media_type=CONTENT_TYPE_LATEST)

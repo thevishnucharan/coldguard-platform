@@ -1,0 +1,9 @@
+{
+  "version": "route-eta-gbr-v1-sim-2026.11",
+  "test_rows": 4000,
+  "p50_mae_minutes": 6.45,
+  "baseline_mae_minutes": 16.24,
+  "mae_improvement_pct": 60.3,
+  "p50_mape_pct": 7.4,
+  "p90_coverage": 0.894
+}

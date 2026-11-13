@@ -174,3 +174,9 @@ class UnitHealth(str, enum.Enum):
     MISSING_TELEMETRY = "MISSING_TELEMETRY"
     NO_DATA = "NO_DATA"
     INACTIVE = "INACTIVE"
+
+
+class RoutePlanStatus(str, enum.Enum):
+    PROPOSED = "PROPOSED"      # generated, awaiting an authorised decision
+    APPROVED = "APPROVED"      # decision recorded; facilities notified to execute transfers
+    CANCELLED = "CANCELLED"    # rejected or superseded
