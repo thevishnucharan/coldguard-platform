@@ -108,6 +108,8 @@ class Params:
     vehicle_capacity_litres: float = 60.0
     vehicles: int = 1
     depart_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # False for facility-wide problems (power outage, fire): only OTHER facilities may receive stock
+    allow_on_site: bool = True
 
 
 EtaFn = Callable[[Sequence[dict], datetime], Dict[Tuple[str, str], Tuple[float, float, float]]]
@@ -355,13 +357,16 @@ class RoutePlanService:
                       expiry=as_utc(b.expiry_date).isoformat()) for b in rows]
 
     @staticmethod
-    def destinations(db: Session, scope, source: StorageUnit) -> Tuple[List[Destination], List[dict]]:
+    def destinations(db: Session, scope, source: StorageUnit,
+                     allow_on_site: bool = True) -> Tuple[List[Destination], List[dict]]:
         blocked = {u for (u,) in db.query(Incident.storage_unit_id).filter(
             Incident.incident_type.in_(BLOCKING_INCIDENTS), Incident.status.in_(ACTIVE_INCIDENT_STATUSES),
             Incident.storage_unit_id.isnot(None))}
         q = scope.apply(db.query(StorageUnit).join(Facility, StorageUnit.facility_id == Facility.id)
                         .filter(StorageUnit.status == StorageUnitStatus.ACTIVE, Facility.is_active.is_(True),
                                 StorageUnit.id != source.id), StorageUnit.facility_id)
+        if not allow_on_site:
+            q = q.filter(StorageUnit.facility_id != source.facility_id)
         out, excluded = [], []
         for u in q.all():
             f = u.facility
@@ -388,7 +393,7 @@ class RoutePlanService:
         cargo = cls.cargo(db, unit)
         if not cargo:
             raise HTTPException(409, "No ACTIVE or QUARANTINED stock in this storage unit to relocate")
-        dests, excluded = cls.destinations(db, scope, unit)
+        dests, excluded = cls.destinations(db, scope, unit, allow_on_site=params.allow_on_site)
         result = optimise(_site(f), cargo, dests, params)
         result["source"].update({"storage_unit_id": str(unit.id), "unit_code": unit.unit_code})
         result["excluded_units"] = excluded
@@ -396,7 +401,8 @@ class RoutePlanService:
         result["model"] = EtaModel.info()
         result["parameters"] = {"max_trip_minutes": params.max_trip_minutes,
                                 "vehicle_capacity_litres": params.vehicle_capacity_litres,
-                                "vehicles": params.vehicles, "depart_at": as_utc(params.depart_at).isoformat()}
+                                "vehicles": params.vehicles, "depart_at": as_utc(params.depart_at).isoformat(),
+                                "allow_on_site": params.allow_on_site}
         result["incident_id"] = str(inc.id) if inc else None
         result["note"] = ("Decision support only. Approving a plan does not move stock; transfers are recorded "
                           "through the inventory ledger by authorised staff.")

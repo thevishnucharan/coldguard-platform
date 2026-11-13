@@ -8,7 +8,7 @@ from .incident import Violation, Incident, IncidentBatch, IncidentEvent, Correct
 from .maintenance import MaintenanceTicket, MaintenanceNote, CalibrationRecord, EquipmentEvent
 from .audit import AuditLog, Notification
 from .configuration import SystemConfiguration
-from .logistics import RoutePlan
+from .logistics import RoutePlan, Shipment, TransitAlert
 
 from app.db import immutability as _immutability  # noqa: E402,F401  (registers ORM guards)
 
@@ -20,5 +20,5 @@ __all__ = [
     "TemperatureReading", "TemperatureRollup", "TelemetryQuarantine", "SensorHealthEvent", "Anomaly",
     "Violation", "Incident", "IncidentBatch", "IncidentEvent", "CorrectiveAction", "Alert",
     "MaintenanceTicket", "MaintenanceNote", "CalibrationRecord", "EquipmentEvent",
-    "AuditLog", "Notification", "SystemConfiguration", "RoutePlan",
+    "AuditLog", "Notification", "SystemConfiguration", "RoutePlan", "Shipment", "TransitAlert",
 ]

@@ -51,6 +51,7 @@ export const router = createBrowserRouter([
         { path: 'admin/facilities', element: g(['facilities.view'], L(() => import('../features/admin/FacilitiesPage'))) },
         { path: 'admin/users', element: g(['users.view'], L(() => import('../features/admin/UsersPage'))) },
         { path: 'admin/logistics', element: g(['logistics.view'], L(() => import('../features/admin/ExcursionRoutingPage'))) },
+        { path: 'logistics/transit', element: g(['logistics.view'], L(() => import('../features/logistics/TransitMonitor'))) },
         { path: 'admin/devices', element: g(['devices.view'], L(() => import('../features/admin/DeviceRegistryPage'))) },
         { path: 'admin/config', element: g(['platform.configure'], L(() => import('../features/admin/SystemConfigPage'))) },
         { path: 'admin/simulation', element: g(['simulation.control'], L(() => import('../features/admin/SimulationPage'))) },

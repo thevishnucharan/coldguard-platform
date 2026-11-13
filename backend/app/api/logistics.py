@@ -3,17 +3,24 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import hmac
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_permission
+from app.api.deps import get_db, require_permission, user_from_token
+from app.core.config import settings
+from app.core.permissions import permissions_for_role
 from app.ml.eta_model import EtaModel
-from app.models import Batch, Incident, RoutePlan
-from app.models.enums import ACTIVE_INCIDENT_STATUSES, BatchStatus, IncidentType, RoutePlanStatus
-from app.schemas.logistics import RoutePlanDecision, RoutePlanRequest
-from app.services.access import AccessScope
+from app.models import Batch, Incident, RoutePlan, Shipment, TransitAlert
+from app.models.enums import (ACTIVE_INCIDENT_STATUSES, BatchStatus, IncidentType, RoutePlanStatus, ShipmentStatus,
+                              TransitAlertStatus)
+from app.schemas.logistics import (DispatchRequest, DivertRequest, NoteRequest, RoutePlanDecision, RoutePlanRequest,
+                                   TransitReading)
+from app.services.access import AccessScope, resolve_scope
 from app.services.route_optimizer import Params, RoutePlanService
+from app.services.transit import TransitService, alert_dict, shipment_dict
 
 router = APIRouter()
 
@@ -79,7 +86,8 @@ def active_excursions(db: Session = Depends(get_db),
 def create_plan(body: RoutePlanRequest, db: Session = Depends(get_db),
                 scope: AccessScope = Depends(require_permission("logistics.plan"))) -> Any:
     params = Params(max_trip_minutes=body.max_trip_minutes, vehicle_capacity_litres=body.vehicle_capacity_litres,
-                    vehicles=body.vehicles, depart_at=body.depart_at or datetime.now(timezone.utc))
+                    vehicles=body.vehicles, depart_at=body.depart_at or datetime.now(timezone.utc),
+                    allow_on_site=body.allow_on_site)
     return RoutePlanService.generate(db, scope, incident_id=body.incident_id, storage_unit_id=body.storage_unit_id,
                                      params=params, persist=body.persist)
 
@@ -116,3 +124,115 @@ def cancel_plan(plan_id: uuid.UUID, body: RoutePlanDecision, db: Session = Depen
     p = RoutePlanService.decide(db, _load(db, plan_id, scope), scope.user, False, body.note)
     return _summary(p)
 
+
+
+# ====================================================================== in-transit monitoring
+def _shipment(db: Session, shipment_id: uuid.UUID, scope: AccessScope) -> Shipment:
+    s = db.get(Shipment, shipment_id)
+    if not s:
+        raise HTTPException(404, "Shipment not found")
+    scope.ensure(s.facility_id, not_found="Shipment not found")
+    return s
+
+
+def _vehicle_auth(request: Request, db: Session = Depends(get_db), x_ingest_key: Optional[str] = Header(None),
+                  authorization: Optional[str] = Header(None)) -> Optional[AccessScope]:
+    """Vehicle gateways authenticate with X-Ingest-Key (no user); people with a JWT that holds
+    logistics.operate (the facility scope check then applies)."""
+    if x_ingest_key:
+        if settings.INGEST_API_KEY and hmac.compare_digest(x_ingest_key, settings.INGEST_API_KEY):
+            return None
+        raise HTTPException(401, "Invalid ingest key")
+    if authorization and authorization.lower().startswith("bearer "):
+        user = user_from_token(db, authorization.split(" ", 1)[1])
+        if "logistics.operate" not in permissions_for_role(user.role):
+            raise HTTPException(403, "Operation not permitted")
+        return resolve_scope(db, user)
+    raise HTTPException(401, "Missing credentials", headers={"WWW-Authenticate": "Bearer"})
+
+
+@router.post("/route-plans/{plan_id}/dispatch", status_code=201)
+def dispatch_plan(plan_id: uuid.UUID, body: DispatchRequest, db: Session = Depends(get_db),
+                  scope: AccessScope = Depends(require_permission("logistics.operate"))) -> List[dict]:
+    plan = _load(db, plan_id, scope)
+    sim = bool(plan.incident and plan.incident.is_simulated)
+    out = TransitService.dispatch(db, plan, scope.user, body.vehicle_code, body.sensor_code, body.trips,
+                                  is_simulated=sim)
+    return [shipment_dict(s) for s in out]
+
+
+@router.get("/shipments")
+def list_shipments(status: Optional[ShipmentStatus] = None, plan_id: Optional[uuid.UUID] = None,
+                   db: Session = Depends(get_db),
+                   scope: AccessScope = Depends(require_permission("logistics.view"))) -> List[dict]:
+    q = scope.apply(db.query(Shipment), Shipment.facility_id)
+    if status:
+        q = q.filter(Shipment.status == status)
+    if plan_id:
+        q = q.filter(Shipment.route_plan_id == plan_id)
+    return [shipment_dict(s) for s in q.order_by(Shipment.dispatched_at.desc()).limit(100).all()]
+
+
+@router.get("/shipments/{shipment_id}")
+def get_shipment(shipment_id: uuid.UUID, db: Session = Depends(get_db),
+                 scope: AccessScope = Depends(require_permission("logistics.view"))) -> dict:
+    return shipment_dict(_shipment(db, shipment_id, scope))
+
+
+@router.get("/shipments/{shipment_id}/nearby")
+def shipment_nearby(shipment_id: uuid.UUID, lat: Optional[float] = None, lon: Optional[float] = None,
+                    db: Session = Depends(get_db),
+                    scope: AccessScope = Depends(require_permission("logistics.view"))) -> List[dict]:
+    """Nearest compatible cold-chain stores from the vehicle's (or a given) position."""
+    s = _shipment(db, shipment_id, scope)
+    lat = s.last_lat if lat is None else lat
+    lon = s.last_lon if lon is None else lon
+    if lat is None or lon is None:
+        raise HTTPException(409, "No known vehicle position")
+    return TransitService.nearby_storage(db, s, lat, lon)
+
+
+@router.post("/shipments/{shipment_id}/telemetry", status_code=202)
+def shipment_telemetry(shipment_id: uuid.UUID, body: TransitReading, db: Session = Depends(get_db),
+                       scope: Optional[AccessScope] = Depends(_vehicle_auth)) -> dict:
+    s = db.get(Shipment, shipment_id)
+    if not s:
+        raise HTTPException(404, "Shipment not found")
+    if scope is not None:
+        scope.ensure(s.facility_id, not_found="Shipment not found")
+    return TransitService.record_reading(db, s, lat=body.lat, lon=body.lon, temperature=body.temperature,
+                                         sensor_status=body.sensor_status, timestamp=body.timestamp)
+
+
+@router.post("/shipments/{shipment_id}/divert")
+def divert_shipment(shipment_id: uuid.UUID, body: DivertRequest, db: Session = Depends(get_db),
+                    scope: AccessScope = Depends(require_permission("logistics.operate"))) -> dict:
+    s = TransitService.divert(db, _shipment(db, shipment_id, scope), body.facility_id, scope.user, body.note)
+    return shipment_dict(s)
+
+
+@router.post("/shipments/{shipment_id}/deliver")
+def deliver_shipment(shipment_id: uuid.UUID, body: NoteRequest, db: Session = Depends(get_db),
+                     scope: AccessScope = Depends(require_permission("logistics.operate"))) -> dict:
+    return shipment_dict(TransitService.deliver(db, _shipment(db, shipment_id, scope), scope.user, body.note))
+
+
+@router.get("/transit-alerts")
+def list_transit_alerts(active: bool = True, db: Session = Depends(get_db),
+                        scope: AccessScope = Depends(require_permission("logistics.view"))) -> List[dict]:
+    q = scope.apply(db.query(TransitAlert).join(Shipment, TransitAlert.shipment_id == Shipment.id),
+                    Shipment.facility_id)
+    if active:
+        q = q.filter(TransitAlert.status != TransitAlertStatus.RESOLVED)
+    return [{**alert_dict(a), "shipment_number": a.shipment.shipment_number, "vehicle_code": a.shipment.vehicle_code}
+            for a in q.order_by(TransitAlert.created_at.desc()).limit(100).all()]
+
+
+@router.post("/transit-alerts/{alert_id}/acknowledge")
+def acknowledge_transit_alert(alert_id: uuid.UUID, db: Session = Depends(get_db),
+                              scope: AccessScope = Depends(require_permission("logistics.operate"))) -> dict:
+    a = db.get(TransitAlert, alert_id)
+    if not a:
+        raise HTTPException(404, "Alert not found")
+    scope.ensure(a.shipment.facility_id, not_found="Alert not found")
+    return alert_dict(TransitService.acknowledge(db, a, scope.user))

@@ -88,11 +88,21 @@ def test_admin_plans_relocation_for_active_excursion(client, geo, db, auth):
     assert {b.storage_unit_id for b in db.query(Batch)} == {geo.units.u1.id}
 
 
+def test_facility_wide_problem_relocates_off_site_only(client, geo, db, auth):
+    _stock(db, geo, "OPV-1", 500, product=geo.frozen)       # would normally go on-site to FZ1
+    inc = _excursion(db)
+    plan = _plan(client, auth, geo.users.admin, incident_id=str(inc.id), allow_on_site=False).json()
+    assert plan["on_site_moves"] == [] and plan["parameters"]["allow_on_site"] is False
+    assert _deliveries(plan)["OPV-1"][1] != "ON_SITE" and plan["summary"]["trip_count"] >= 1
+
+
 def test_units_with_active_incidents_are_excluded(client, geo, db, auth):
     _stock(db, geo, "PENTA-1", 1000)
     inc = _excursion(db)
     _excursion(db, "S-U2")  # the nearest alternative is failing too
-    plan = _plan(client, auth, geo.users.admin, incident_id=str(inc.id)).json()
+    # off-peak departure and a generous hold time: Mysuru (~130 km) must be reachable at any test time
+    plan = _plan(client, auth, geo.users.admin, incident_id=str(inc.id), max_trip_minutes=480,
+                 depart_at="2026-11-11T08:00:00+00:00").json()
     assert _deliveries(plan) == {"PENTA-1": ("U3", "F3")}  # falls back to Mysuru
     assert {"unit_code": "U2", "facility_code": "F2",
             "reason": "Unit has an active excursion / equipment / connectivity incident"} in plan["excluded_units"]

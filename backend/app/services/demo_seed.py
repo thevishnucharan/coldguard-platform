@@ -8,6 +8,7 @@ are used only as plausible labels for fictional facilities.
 from __future__ import annotations
 
 import logging
+import uuid
 import random
 from datetime import datetime, timedelta, timezone
 
@@ -66,9 +67,18 @@ PRODUCTS = [
 
 
 def wipe(db: Session):
-    """DEMO ONLY: remove all rows (bypasses ORM immutability guards by design)."""
-    for table in reversed(Base.metadata.sorted_tables):
-        db.execute(table.delete())
+    """DEMO ONLY: remove all rows (bypasses ORM immutability guards by design).
+
+    On PostgreSQL this is ONE `TRUNCATE ... CASCADE` statement: it locks every table at once, so
+    a separate worker process (e.g. the simulator in its own pod) cannot insert readings between
+    per-table deletes and break foreign keys half-way through the wipe."""
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy import text
+        names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+        db.execute(text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE"))
+    else:
+        for table in reversed(Base.metadata.sorted_tables):
+            db.execute(table.delete())
     db.commit()
 
 
@@ -372,4 +382,50 @@ def _live_scenarios(db, now, sensors, users, facilities):
     # CURRENT time so sweeps that resume afterwards don't see the whole fleet as stale.
     from app.services.simulation import SimulationEngine
     SimulationEngine().tick(now=datetime.now(timezone.utc), ignore_pause=True)
-    return {"incidents": db.query(Incident).count()}
+    logistics = _logistics_scenarios(db, users, inc_for("S-BLR-JAY-ILR-1"), inc_for("S-BLR-HEB-ILR-1"))
+    return {"incidents": db.query(Incident).count(), **logistics}
+
+
+def _logistics_scenarios(db, users, jay, heb):
+    """Supply-chain demo (SIMULATED): relocation plans for live excursions, one vehicle in transit
+    whose data logger fails half-way (transit alert + incident + nearby stores alerted), and one
+    delivered shipment for history."""
+    from app.models import Shipment
+    from app.services.access import AccessScope
+    from app.services.route_optimizer import Params, RoutePlanService
+    from app.services.transit import TransitService
+    admin, op_blr = users["admin@coldguard.local"], users["operator.blr@coldguard.local"]
+    scope = AccessScope(user=admin, is_global=True)
+    out = {"route_plans": 0, "shipments": 0, "transit_alerts": 0}
+    for inc, vehicle, fail in ((jay, "KA01CC1001", True), (heb, "KA01CC2002", False)):
+        if not inc:
+            continue
+        try:
+            # demo story: the whole facility lost power, so stock must leave the site by vehicle
+            res = RoutePlanService.generate(db, scope, incident_id=inc.id,
+                                            params=Params(vehicles=1, allow_on_site=False))
+        except Exception as exc:  # e.g. no stock left in the unit — never break seeding
+            db.rollback()
+            log.warning("demo logistics plan skipped for %s: %s", inc.incident_number, exc)
+            continue
+        out["route_plans"] += 1
+        from app.models import RoutePlan
+        plan = db.get(RoutePlan, uuid.UUID(res["id"]))
+        if not res["trips"]:
+            continue
+        RoutePlanService.decide(db, plan, admin, True, "Demo: approved for relocation")
+        s = TransitService.dispatch(db, plan, op_blr, vehicle, trips=[1], is_simulated=True)[0]
+        out["shipments"] += 1
+        src, stop = res["source"], res["trips"][0]["stops"][0]
+        for k, frac in enumerate((0.2, 0.4, 0.55)):          # vehicle moving towards its first stop
+            lat = src["lat"] + (stop["lat"] - src["lat"]) * frac
+            lon = src["lon"] + (stop["lon"] - src["lon"]) * frac
+            if fail and k == 2:
+                TransitService.record_reading(db, s, lat=lat, lon=lon, temperature=None, sensor_status="FAULT")
+            else:
+                TransitService.record_reading(db, s, lat=lat, lon=lon, temperature=round(4.6 + k * 0.3, 1))
+        if not fail:
+            TransitService.deliver(db, db.get(Shipment, s.id), op_blr, "Demo: received into destination unit")
+    from app.models import TransitAlert
+    out["transit_alerts"] = db.query(TransitAlert).count()
+    return out

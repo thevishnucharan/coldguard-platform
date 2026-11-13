@@ -66,6 +66,7 @@ PERMISSIONS: Dict[str, str] = {
     # logistics (excursion relocation routing)
     "logistics.view": "View excursion relocation route plans",
     "logistics.plan": "Generate, approve and cancel ML-assisted excursion relocation route plans",
+    "logistics.operate": "Dispatch vehicles, report in-transit telemetry, acknowledge transit alerts, divert / deliver",
     # reports & audit
     "reports.view": "View reports and analytics",
     "reports.export": "Export reports (CSV/PDF)",
@@ -84,7 +85,7 @@ ROLE_PERMISSIONS: Dict[Role, FrozenSet[str]] = {
         "users.view", "users.create", "users.update", "users.assign_roles",
         "devices.register", "devices.view", "storage.manage", "telemetry.ingest",
         "monitoring.view", "incidents.view", "inventory.view", "products.manage",
-        "maintenance.view", "calibration.view", "logistics.view", "logistics.plan",
+        "maintenance.view", "calibration.view", "logistics.view", "logistics.plan", "logistics.operate",
         "reports.view", "reports.export", "audit.view", "notifications.view",
     }),
     # Facility operator: day-to-day operations at assigned facilities.
@@ -94,6 +95,7 @@ ROLE_PERMISSIONS: Dict[Role, FrozenSet[str]] = {
         "corrective_actions.submit",
         "inventory.view", "inventory.manage", "batches.quarantine",
         "maintenance.view", "maintenance.create", "maintenance.verify", "calibration.view", "logistics.view",
+        "logistics.operate",
         "reports.view", "reports.export", "notifications.view",
     }),
     # Regional supervisor: oversight + approvals + disposition for their region.
@@ -103,7 +105,7 @@ ROLE_PERMISSIONS: Dict[Role, FrozenSet[str]] = {
         "corrective_actions.approve",
         "inventory.view", "batches.quarantine", "batches.release", "batches.dispose",
         "maintenance.view", "maintenance.create", "maintenance.assign", "maintenance.verify",
-        "calibration.view", "logistics.view",
+        "calibration.view", "logistics.view", "logistics.operate",
         "reports.view", "reports.export", "audit.view", "notifications.view",
     }),
     # Technician: equipment only. No stock, no disposition.

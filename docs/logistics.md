@@ -72,6 +72,44 @@ If the model file is missing or unreadable, the API falls back to the physical b
 | POST | `/route-plans/{id}/approve` · `/route-plans/{id}/cancel` `{note}` | `logistics.plan` |
 
 Only one plan per source unit can be APPROVED at a time. Migration: `0003_route_plans`.
+`allow_on_site: false` is for facility-wide problems (power outage, fire): only *other*
+facilities may receive stock.
+
+## In-transit monitoring (`backend/app/services/transit.py`)
+
+An APPROVED plan is **dispatched** as one shipment per vehicle trip (`POST /route-plans/{id}/dispatch
+{vehicle_code, sensor_code?, trips?}`). Each vehicle's data logger reports position and cargo
+temperature (`POST /shipments/{id}/telemetry {lat, lon, temperature, sensor_status?}`, via the
+`X-Ingest-Key` gateway or a JWT with `logistics.operate`).
+
+| Failure | Detected when | Severity / incident |
+|---|---|---|
+| `SENSOR_FAULT` | logger reports FAULT/ERROR, sends no value, or a physically implausible value (< −90 °C or > 70 °C) | HIGH · `TRANSIT_SENSOR_FAILURE` |
+| `SENSOR_OFFLINE` | no reading for `TRANSIT_OFFLINE_MINUTES` (5); worker job `transit` | HIGH · `TRANSIT_SENSOR_FAILURE` |
+| `TEMPERATURE_EXCURSION` | valid reading outside the strictest product range on board | CRITICAL · `TRANSIT_EXCURSION` |
+
+For every alert, the **nearest compatible cold-chain stores** are ranked from the vehicle's last
+known position using the ML ETA model:
+* units must be active, hold no active excursion, equipment or connectivity incident, have an
+  approved range that suits every product on board, and have room for the load;
+* a store is *reachable* when its p90 ETA fits in the hold time left;
+* the top `TRANSIT_NEARBY_LIMIT` (3) stores are kept, reachable ones first.
+
+Who is alerted (in-app notification and realtime event):
+* the **vehicle's operator** (the person who dispatched it) and the source facility's operators
+  and supervisors, with the recommended store, ETA and hold time left;
+* **operators of each nearby store**: "prepare unit X to receive diverted stock"; the
+  recommended one is marked.
+
+One active alert is kept per failure mode, with its position and ranking refreshed. When valid
+readings return, logger alerts resolve automatically. People then **acknowledge**, **divert**
+(`/shipments/{id}/divert {facility_id}`, which notifies the receiving store) or **deliver**.
+Nothing is diverted automatically. UI: *Admin → Excursion routing* (dispatch and monitor) and
+*In-transit vehicles* for admins, operators and supervisors.
+
+The demo seed creates this scenario: a facility-wide plan for the open Jayanagar excursion, the
+vehicle `KA01CC1001` in transit whose logger fails half-way (alert, incident and nearby stores
+alerted), plus a delivered shipment. Migration: `0004_shipments`.
 
 ## Tests
 
@@ -79,3 +117,6 @@ Only one plan per source unit can be APPROVED at a time. Migration: `0003_route_
 * `backend/tests/services/test_route_optimizer.py`: compatibility, capacity, hold time, trip splitting, ordering, consolidation, fleet size, exact search vs. 2-opt.
 * `backend/tests/api/test_logistics.py`: real excursion pipeline, exclusions, RBAC and scope, approval workflow, notifications, audit, execution through the inventory ledger.
 * `frontend/src/test/logistics.test.tsx`: page flow, approval, read-only mode, navigation.
+* `backend/tests/api/test_transit.py` (15): dispatch rules and RBAC; logger fault, implausible value, cargo excursion and silent logger; ML-ranked nearby stores (excluding failing, incompatible, full or unreachable ones); alerts to the dispatcher, source facility and nearby stores; incidents; dedup and auto-resolve; divert, deliver, acknowledge; telemetry authentication.
+* `backend/tests/scenarios/test_demo_seed.py`: the seeded supply-chain scenario (plans, in-transit failure, delivered shipment).
+* `frontend/src/test/transit.test.tsx`: transit monitor (alert, hold-time bar, recommended store, divert, acknowledge, demo failure, read-only), role sidebar and home banner, login demo cards.

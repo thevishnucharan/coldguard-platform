@@ -62,7 +62,7 @@ describe('ExcursionRoutingPage', () => {
     fireEvent.change(screen.getByLabelText(/Cold-box hold time/), { target: { value: '180' } })
     fireEvent.click(button)
     await waitFor(() => expect(Logistics.optimise).toHaveBeenCalledWith(
-      { incident_id: 'i1', max_trip_minutes: 180, vehicle_capacity_litres: 60, vehicles: 2 }))
+      { incident_id: 'i1', max_trip_minutes: 180, vehicle_capacity_litres: 60, vehicles: 2, allow_on_site: true }))
     expect(await screen.findByText('−37.7%')).toBeInTheDocument()
     expect(screen.getByTestId('route-map')).toHaveTextContent('1 trip(s)')
     expect(screen.getByText(/PHC Two/)).toBeInTheDocument()

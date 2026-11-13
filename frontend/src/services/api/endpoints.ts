@@ -158,7 +158,7 @@ export const System = {
   resetDemo: () => post<Any>('/demo/reset', { confirm: 'RESET DEMO DATA' }),
 }
 
-export interface RoutePlanParams { max_trip_minutes: number; vehicle_capacity_litres: number; vehicles: number; persist?: boolean }
+export interface RoutePlanParams { max_trip_minutes: number; vehicle_capacity_litres: number; vehicles: number; allow_on_site?: boolean; persist?: boolean }
 export const Logistics = {
   model: () => get<Any>('/logistics/model'),
   excursions: () => get<Any[]>('/logistics/excursions'),
@@ -167,4 +167,15 @@ export const Logistics = {
   optimise: (b: { incident_id?: string; storage_unit_id?: string } & RoutePlanParams) => post<Any>('/logistics/route-plans', b),
   approve: (id: string, note?: string) => post<Any>(`/logistics/route-plans/${id}/approve`, { note }),
   cancel: (id: string, note: string) => post<Any>(`/logistics/route-plans/${id}/cancel`, { note }),
+  // in-transit monitoring
+  dispatch: (id: string, vehicle_code: string, sensor_code?: string) =>
+    post<Any[]>(`/logistics/route-plans/${id}/dispatch`, { vehicle_code, sensor_code: sensor_code || undefined }),
+  shipments: (params?: Params) => get<Any[]>('/logistics/shipments', params),
+  shipment: (id: string) => get<Any>(`/logistics/shipments/${id}`),
+  telemetry: (id: string, b: { lat: number; lon: number; temperature: number | null; sensor_status?: string }) =>
+    post<Any>(`/logistics/shipments/${id}/telemetry`, b),
+  divert: (id: string, facility_id: string, note?: string) => post<Any>(`/logistics/shipments/${id}/divert`, { facility_id, note }),
+  deliver: (id: string, note?: string) => post<Any>(`/logistics/shipments/${id}/deliver`, { note }),
+  transitAlerts: (active = true) => get<Any[]>('/logistics/transit-alerts', { active }),
+  acknowledgeAlert: (id: string) => post<Any>(`/logistics/transit-alerts/${id}/acknowledge`),
 }

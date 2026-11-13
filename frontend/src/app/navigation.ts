@@ -1,10 +1,10 @@
 import {
   Activity, BarChart3, Boxes, Building2, CalendarCheck, ClipboardCheck, ClipboardList, Cpu, FileText, FlaskConical,
-  Gauge, LayoutDashboard, Map, Route, ScrollText, Settings2, ShieldAlert, ShieldCheck, Thermometer, Users, Wrench,
+  Gauge, LayoutDashboard, Map, Route, ScrollText, Truck, Settings2, ShieldAlert, ShieldCheck, Thermometer, Users, Wrench,
 } from 'lucide-react'
 import type { Role } from '../types'
 
-export interface NavItem { label: string; to: string; icon: React.ComponentType<{ size?: number; className?: string }>; perm?: string[]; badge?: 'incidents' | 'approvals' | 'workorders' }
+export interface NavItem { label: string; to: string; icon: React.ComponentType<{ size?: number; className?: string }>; perm?: string[]; badge?: 'incidents' | 'approvals' | 'workorders' | 'transit' }
 export interface NavSection { title: string; items: NavItem[] }
 
 /** Each role gets its own information architecture — not one menu with items hidden. */
@@ -16,6 +16,7 @@ export const NAV: Record<Role, NavSection[]> = {
       { label: 'Users & access', to: '/admin/users', icon: Users, perm: ['users.view'] },
       { label: 'Device registry', to: '/admin/devices', icon: Cpu, perm: ['devices.view'] },
       { label: 'Excursion routing', to: '/admin/logistics', icon: Route, perm: ['logistics.view'] },
+      { label: 'In-transit vehicles', to: '/logistics/transit', icon: Truck, perm: ['logistics.view'], badge: 'transit' },
     ] },
     { title: 'Oversight', items: [
       { label: 'Live monitoring', to: '/monitoring', icon: Thermometer, perm: ['monitoring.view'] },
@@ -36,6 +37,7 @@ export const NAV: Record<Role, NavSection[]> = {
     ] },
     { title: 'Operations', items: [
       { label: 'Vaccine inventory', to: '/inventory', icon: Boxes, perm: ['inventory.view'] },
+      { label: 'In-transit vehicles', to: '/logistics/transit', icon: Truck, perm: ['logistics.view'], badge: 'transit' },
       { label: 'Maintenance requests', to: '/maintenance', icon: Wrench, perm: ['maintenance.view'] },
       { label: 'Facility reports', to: '/reports', icon: FileText, perm: ['reports.view'] },
     ] },
@@ -50,6 +52,7 @@ export const NAV: Record<Role, NavSection[]> = {
     { title: 'Monitoring', items: [
       { label: 'Live monitoring', to: '/monitoring', icon: Thermometer },
       { label: 'Stock & quarantine', to: '/inventory', icon: Boxes, perm: ['inventory.view'] },
+      { label: 'In-transit vehicles', to: '/logistics/transit', icon: Truck, perm: ['logistics.view'], badge: 'transit' },
       { label: 'Maintenance', to: '/maintenance', icon: Wrench, perm: ['maintenance.view'] },
     ] },
     { title: 'Records', items: [
@@ -93,4 +96,13 @@ export function navFor(role: Role, perms: string[]): NavSection[] {
   return NAV[role]
     .map((s) => ({ ...s, items: s.items.filter((i) => !i.perm || i.perm.every((p) => perms.includes(p))) }))
     .filter((s) => s.items.length)
+}
+
+/** Visual identity per role: sidebar accent, avatar ring and the home greeting. */
+export const ROLE_META: Record<Role, { accent: string; soft: string; tagline: string; icon: NavItem['icon'] }> = {
+  ADMIN: { accent: '#8b7cf6', soft: 'rgba(139,124,246,.16)', tagline: 'Platform health, access and configuration across every facility.', icon: Settings2 },
+  OPERATOR: { accent: '#14a294', soft: 'rgba(20,162,148,.16)', tagline: 'Keep your vaccines in range: alarms, stock and maintenance requests.', icon: Thermometer },
+  SUPERVISOR: { accent: '#3b8ff0', soft: 'rgba(59,143,240,.16)', tagline: 'Regional oversight, approvals and stock disposition decisions.', icon: Map },
+  TECHNICIAN: { accent: '#f0a531', soft: 'rgba(240,165,49,.16)', tagline: 'Work orders, preventive schedule and sensor calibration.', icon: Wrench },
+  AUDITOR: { accent: '#e2729f', soft: 'rgba(226,114,159,.16)', tagline: 'Read-only evidence: audit trail, incidents and batch traceability.', icon: ShieldCheck },
 }

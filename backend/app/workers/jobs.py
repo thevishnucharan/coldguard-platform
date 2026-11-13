@@ -21,6 +21,11 @@ def job_connectivity(db):
     return SensorHealthService.check_offline_sensors(db)
 
 
+def job_transit(db):
+    from app.services.transit import TransitService
+    return TransitService.check_offline(db)
+
+
 def job_escalation(db):
     from app.services.escalation import run_escalations
     return run_escalations(db)
@@ -91,6 +96,7 @@ def heartbeat(db):
 JOBS = [  # (name, every_n_ticks)
     ("heartbeat", heartbeat, 1),
     ("connectivity", job_connectivity, 1),
+    ("transit", job_transit, 1),          # silent vehicle data loggers -> SENSOR_OFFLINE transit alerts
     ("escalation", job_escalation, 2),
     ("gauges", job_gauges, 1),
     ("maintenance_rules", job_maintenance_rules, 10),

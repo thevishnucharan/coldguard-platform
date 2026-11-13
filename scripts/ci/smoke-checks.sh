@@ -47,7 +47,12 @@ run_smoke_checks() {
     || fail "route ETA model not loaded in the container"
   expect_code 200 -H "Authorization: Bearer $ADMIN" "$API_URL/api/v1/logistics/excursions"
   expect_code 200 -H "Authorization: Bearer $ADMIN" "$API_URL/api/v1/dashboards/admin"
-  ok "dashboards and ML routing endpoints respond"
+  # seeded supply-chain scenario: a vehicle in transit whose data logger failed half-way
+  n=$("${CURL[@]}" -f -H "Authorization: Bearer $OPER" "$API_URL/api/v1/logistics/transit-alerts" | json_get 'len(d)')
+  [ "$n" -ge 1 ] || fail "expected the seeded in-transit sensor-failure alert"
+  "${CURL[@]}" -f -H "Authorization: Bearer $OPER" "$API_URL/api/v1/logistics/transit-alerts" \
+    | json_get 'd[0]["nearby"][0]["facility_name"]' >/dev/null || fail "transit alert has no nearby cold-chain store"
+  ok "dashboards, ML routing and in-transit alerting respond ($n active transit alert(s))"
 
   log "telemetry ingestion (REST gateway + MQTT)"
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)

@@ -72,6 +72,8 @@ class IncidentType(str, enum.Enum):
     ABNORMAL_PATTERN = "ABNORMAL_PATTERN"   # ML / statistical decision-support signal
     EQUIPMENT_FAILURE = "EQUIPMENT_FAILURE"
     SENSOR_FAULT = "SENSOR_FAULT"
+    TRANSIT_SENSOR_FAILURE = "TRANSIT_SENSOR_FAILURE"   # vehicle data logger failed / silent in transit
+    TRANSIT_EXCURSION = "TRANSIT_EXCURSION"             # cargo temperature out of range in transit
 
 
 class CorrectiveActionStatus(str, enum.Enum):
@@ -180,3 +182,28 @@ class RoutePlanStatus(str, enum.Enum):
     PROPOSED = "PROPOSED"      # generated, awaiting an authorised decision
     APPROVED = "APPROVED"      # decision recorded; facilities notified to execute transfers
     CANCELLED = "CANCELLED"    # rejected or superseded
+
+
+class ShipmentStatus(str, enum.Enum):
+    IN_TRANSIT = "IN_TRANSIT"
+    DELIVERED = "DELIVERED"
+    DIVERTED = "DIVERTED"      # re-routed to a nearby cold-chain store after an in-transit alert
+    CANCELLED = "CANCELLED"
+
+
+class TransitSensorState(str, enum.Enum):
+    OK = "OK"
+    FAULT = "FAULT"            # logger reports a fault / implausible value
+    OFFLINE = "OFFLINE"        # no reading within TRANSIT_OFFLINE_MINUTES
+
+
+class TransitAlertType(str, enum.Enum):
+    SENSOR_FAULT = "SENSOR_FAULT"
+    SENSOR_OFFLINE = "SENSOR_OFFLINE"
+    TEMPERATURE_EXCURSION = "TEMPERATURE_EXCURSION"
+
+
+class TransitAlertStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    RESOLVED = "RESOLVED"

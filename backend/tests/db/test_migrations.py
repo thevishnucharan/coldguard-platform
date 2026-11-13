@@ -23,7 +23,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     assert r.returncode == 0, r.stderr
     insp = sa.inspect(sa.create_engine(url))
     for t in ("facilities", "incident_events", "inventory_movements", "maintenance_tickets", "notifications",
-              "route_plans"):
+              "route_plans", "shipments", "transit_alerts"):
         assert insp.has_table(t)
 
 

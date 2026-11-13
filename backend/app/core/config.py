@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     # ML
     ML_ENABLED: bool = True
     ML_PATTERN_WINDOW_MINUTES: int = 30
+
+    # In-transit monitoring (relocation vehicles): logger silent this long -> SENSOR_OFFLINE alert
+    TRANSIT_OFFLINE_MINUTES: int = 5
+    TRANSIT_NEARBY_LIMIT: int = 3
     ML_PATTERN_MIN_ANOMALIES: int = 3
 
     # Demo mode

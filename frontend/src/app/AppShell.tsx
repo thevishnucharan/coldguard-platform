@@ -1,19 +1,20 @@
 import { Menu, MenuButton, MenuItem, MenuItems, Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
 import {
-  Bell, ChevronDown, CircleUserRound, FlaskConical, LogOut, Menu as MenuIcon, Moon, Search, Snowflake, Sun, Wifi, WifiOff, X,
+  ArrowRight, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CircleUserRound, FlaskConical, LogOut, Menu as MenuIcon, Moon, Search,
+  Snowflake, Sun, Wifi, WifiOff, X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useApi, useNow, useRealtimeEvent, useRealtimeStatus } from '../hooks/useApi'
-import { Auth, Incidents, Maintenance, Notifications } from '../services/api/endpoints'
+import { Auth, Incidents, Logistics, Maintenance, Notifications } from '../services/api/endpoints'
 import { realtime } from '../services/websocket/realtime'
 import { useAuthStore } from '../store/authStore'
 import { useThemeStore } from '../store/themeStore'
 import type { Notification } from '../types'
 import { ago, cx } from '../utils/format'
 import { CommandPalette } from './CommandPalette'
-import { navFor } from './navigation'
+import { HOME, navFor, ROLE_META } from './navigation'
 
 function ConnectionIndicator() {
   const status = useRealtimeStatus()
@@ -84,15 +85,56 @@ function useBadges(perms: string[]) {
   const inc = useApi(() => Incidents.list({ active: true, page_size: 1 }), [], { refreshOn: ['incident.created', 'incident.updated'], enabled: perms.includes('incidents.view') })
   const rev = useApi(() => Incidents.list({ status: ['CORRECTIVE_ACTION_PENDING', 'UNDER_REVIEW'], page_size: 1 }), [], { refreshOn: ['incident.updated'], enabled: perms.includes('incidents.review') })
   const wo = useApi(() => Maintenance.list({ status: ['OPEN', 'ASSIGNED', 'IN_PROGRESS'], page_size: 1 }), [], { refreshOn: ['maintenance.updated'], enabled: perms.includes('maintenance.update') })
-  return { incidents: inc.data?.total, approvals: rev.data?.total, workorders: wo.data?.total }
+  const tr = useApi(() => Logistics.transitAlerts(true), [], { refreshOn: ['transit.alert'], interval: 60000, enabled: perms.includes('logistics.view') })
+  return { incidents: inc.data?.total, approvals: rev.data?.total, workorders: wo.data?.total, transit: tr.data?.length }
 }
 
 const initials = (name: string) => name.replace(/^Dr\.\s*/, '').split(' ').map((p) => p[0]).slice(0, 2).join('')
+
+const COLLAPSE_KEY = 'cg.sidebar.collapsed'
+const readCollapsed = () => { try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false } }
+const greeting = (h = new Date().getHours()) => (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening')
+
+/** Greeting + live status on each role's home page (one place for all five roles). */
+function HomeBanner({ badges }: { badges: Record<string, number | undefined> }) {
+  const me = useAuthStore((st) => st.me)!
+  const meta = ROLE_META[me.role]
+  const quick = navFor(me.role, me.permissions).flatMap((sec) => sec.items).filter((i) => i.to !== HOME[me.role]).slice(0, 3)
+  const chips: [string, number | undefined, string][] = [
+    ['active incidents', badges.incidents, 'bg-crit'], ['awaiting approval', badges.approvals, 'bg-[#2a78d6]'],
+    ['open work orders', badges.workorders, 'bg-[#2a78d6]'], ['transit alerts', badges.transit, 'bg-crit'],
+  ]
+  return (
+    <section className="relative mb-6 overflow-hidden rounded-2xl border border-line bg-surface px-5 py-4 sm:px-6"
+      style={{ backgroundImage: `linear-gradient(110deg, ${meta.soft}, transparent 55%)` }} aria-label="Welcome">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="grid place-items-center size-11 rounded-2xl text-white shadow-sm" style={{ background: meta.accent }}><meta.icon size={20} /></span>
+          <div className="min-w-0">
+            <p className="display text-[19px] font-semibold text-ink leading-tight">{greeting()}, {me.name.replace(/^Dr\.\s*/, '').split(' ')[0]}</p>
+            <p className="text-[12.5px] text-ink-3 truncate">{me.role_label} · {me.global_scope ? 'all facilities' : `${me.facility_ids.length} facilit${me.facility_ids.length === 1 ? 'y' : 'ies'}`} · {meta.tagline}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {chips.filter(([, n]) => n !== undefined).map(([label, n, dot]) => (
+            <span key={label} className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 h-8 text-xs text-ink-2">
+              <span className={cx('size-2 rounded-full', n ? dot : 'bg-ok')} /><b className="tabular-nums text-ink">{n}</b> {label}
+            </span>))}
+          {quick.map((i) => (
+            <Link key={i.to} to={i.to} className="hidden md:inline-flex items-center gap-1.5 rounded-lg px-2.5 h-8 text-xs font-medium text-ink-2 hover:bg-surface-2">
+              <i.icon size={14} />{i.label}<ArrowRight size={12} className="text-ink-3" /></Link>))}
+        </div>
+      </div>
+    </section>
+  )
+}
 
 export function AppShell() {
   const { me, refreshToken, clear } = useAuthStore()
   const { theme, toggle } = useThemeStore()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  const toggleCollapsed = () => setCollapsed((c) => { try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1') } catch { /* storage blocked */ } return !c })
   const [palette, setPalette] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -113,35 +155,57 @@ export function AppShell() {
     navigate('/login')
   }
 
-  const sidebar = (
-    <aside className="flex h-full w-[260px] flex-col bg-navy-900 text-[#c6d2e3] border-r border-white/5">
-      <Link to="/" className="flex items-center gap-2.5 px-6 h-16">
-        <span className="grid place-items-center size-8 rounded-xl bg-gradient-to-br from-brand-500 to-[#2a78d6] text-white shadow-lg shadow-brand-600/20"><Snowflake size={17} /></span>
-        <span className="text-[17px] font-semibold text-white tracking-tight">ColdGuard</span>
-        <span className="rounded-md bg-ok px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-white">v2</span>
-      </Link>
-      <div className="mx-4 mb-2 rounded-xl bg-white/[0.04] px-3 py-2.5">
-        <p className="text-[10.5px] uppercase tracking-[0.08em] text-[#6f86a6]">Signed in as</p>
-        <p className="text-[13px] font-medium text-white truncate">{me.role_label}</p>
-        <p className="text-[11px] text-[#8aa0bd]">{me.global_scope ? 'All facilities' : `${me.facility_ids.length} facilit${me.facility_ids.length === 1 ? 'y' : 'ies'} in scope`}</p>
+  const meta = ROLE_META[me.role]
+  const scopeLabel = me.global_scope ? 'All facilities' : `${me.facility_ids.length} facilit${me.facility_ids.length === 1 ? 'y' : 'ies'} in scope`
+  const sidebar = (mini: boolean) => (
+    <aside className={cx('flex h-full flex-col bg-navy-900 text-[#c6d2e3] border-r border-white/5 transition-[width] duration-200', mini ? 'w-[76px]' : 'w-[264px]')}
+      style={{ backgroundImage: `radial-gradient(420px 260px at 0% 0%, ${meta.soft}, transparent 70%)` }} aria-label="Sidebar">
+      <div className={cx('flex items-center h-16 shrink-0', mini ? 'justify-center px-2' : 'gap-2.5 px-5')}>
+        <Link to={HOME[me.role]} className="flex items-center gap-2.5" aria-label="ColdGuard home">
+          <span className="grid place-items-center size-9 rounded-xl bg-gradient-to-br from-brand-500 to-[#2a78d6] text-white shadow-lg shadow-brand-600/20"><Snowflake size={18} /></span>
+          {!mini && <span className="text-[17px] font-semibold text-white tracking-tight">ColdGuard</span>}
+        </Link>
+        {!mini && <span className="ml-auto rounded-md px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-white" style={{ background: meta.accent }}>{me.role.toLowerCase()}</span>}
       </div>
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5" aria-label="Main">
-        {sections.map((s) => (
-          <div key={s.title}>
-            <p className="px-3 mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-[#6f86a6]">{s.title}</p>
+
+      <Link to="/profile" title={mini ? `${me.name} — ${me.role_label}` : undefined}
+        className={cx('mb-3 flex items-center rounded-2xl border border-white/[0.06] bg-white/[0.04] hover:bg-white/[0.07] transition-colors', mini ? 'mx-3 justify-center p-2' : 'mx-4 gap-3 p-3')}>
+        <span className="relative grid place-items-center size-10 shrink-0 rounded-xl text-white text-[13px] font-semibold"
+          style={{ background: `linear-gradient(135deg, ${meta.accent}, #22324b)` }}>
+          {initials(me.name)}
+          <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-navy-900 bg-ok" aria-hidden />
+        </span>
+        {!mini && (
+          <span className="min-w-0">
+            <span className="block text-[13.5px] font-medium text-white truncate">{me.name}</span>
+            <span className="block text-[11.5px] truncate" style={{ color: meta.accent }}>{me.role_label}</span>
+            <span className="block text-[10.5px] text-[#8aa0bd] truncate">{scopeLabel}</span>
+          </span>)}
+      </Link>
+
+      <nav className={cx('flex-1 overflow-y-auto py-1 space-y-5', mini ? 'px-2' : 'px-3')} aria-label="Main">
+        {sections.map((sec) => (
+          <div key={sec.title}>
+            {mini ? <div className="mx-3 mb-2 h-px bg-white/[0.06]" aria-hidden />
+              : <p className="px-3 mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[#6f86a6]">{sec.title}</p>}
             <ul className="space-y-0.5">
-              {s.items.map((i) => {
+              {sec.items.map((i) => {
                 const count = i.badge ? badges[i.badge] : undefined
+                const alarm = i.badge === 'incidents' || i.badge === 'transit'
                 return (
                   <li key={i.to}>
-                    <NavLink to={i.to} end={i.to.split('/').length <= 2}
-                      className={({ isActive }) => cx('relative flex items-center gap-3 rounded-xl px-3 h-10 text-[13.5px] transition-colors',
-                        isActive ? 'bg-white/[0.08] text-white font-medium' : 'hover:bg-white/[0.04] hover:text-white')}>
+                    <NavLink to={i.to} end={i.to.split('/').length <= 2} title={mini ? i.label : undefined}
+                      className={({ isActive }) => cx('group relative flex items-center rounded-xl h-10 text-[13.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500',
+                        mini ? 'justify-center' : 'gap-3 px-3',
+                        isActive ? 'bg-white/[0.09] text-white font-medium shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]' : 'hover:bg-white/[0.05] hover:text-white')}>
                       {({ isActive }) => (<>
-                        {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-brand-500" />}
-                        <i.icon size={17} className={isActive ? 'text-brand-200' : 'text-[#7f95b3]'} />
-                        <span className="flex-1 truncate">{i.label}</span>
-                        {!!count && <span className={cx('rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold text-white', i.badge === 'incidents' ? 'bg-crit' : 'bg-[#2a78d6]')}>{count}</span>}
+                        {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r" style={{ background: meta.accent }} />}
+                        <span className={cx('grid place-items-center size-7 rounded-lg transition-colors', isActive ? 'text-white' : 'text-[#7f95b3] group-hover:text-[#c6d2e3]')}
+                          style={isActive ? { background: meta.soft, color: meta.accent } : undefined}><i.icon size={16} /></span>
+                        {!mini && <span className="flex-1 truncate">{i.label}</span>}
+                        {!!count && (mini
+                          ? <span className={cx('absolute top-1.5 right-2 size-2 rounded-full', alarm ? 'bg-crit' : 'bg-[#2a78d6]')} aria-label={`${count} pending`} />
+                          : <span className={cx('rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold text-white tabular-nums', alarm ? 'bg-crit' : 'bg-[#2a78d6]')}>{count}</span>)}
                       </>)}
                     </NavLink>
                   </li>
@@ -151,23 +215,31 @@ export function AppShell() {
           </div>
         ))}
       </nav>
-      <div className="mx-4 mb-3 rounded-xl border border-white/5 px-3 py-2.5 text-[11px] text-[#8aa0bd] flex items-start gap-2">
-        <FlaskConical size={14} className="mt-0.5 shrink-0 text-[#86b6ef]" />
-        <span>Readings tagged <b className="text-[#cde2fb]">Simulated</b> come from the demo simulator, not hardware.</span>
+
+      {!mini && (
+        <div className="mx-4 mb-2 rounded-xl border border-white/5 px-3 py-2.5 text-[11px] text-[#8aa0bd] flex items-start gap-2">
+          <FlaskConical size={14} className="mt-0.5 shrink-0 text-[#86b6ef]" />
+          <span>Readings tagged <b className="text-[#cde2fb]">Simulated</b> come from the demo simulator, not hardware.</span>
+        </div>)}
+      <div className={cx('mb-4 flex gap-1', mini ? 'mx-2 flex-col items-center' : 'mx-3')}>
+        <button onClick={logout} title="Sign out" className={cx('flex items-center rounded-xl h-10 text-[13.5px] hover:bg-white/[0.05] hover:text-white', mini ? 'w-10 justify-center' : 'flex-1 gap-3 px-3')}>
+          <LogOut size={17} className="text-[#7f95b3]" />{!mini && 'Sign out'}
+        </button>
+        <button onClick={toggleCollapsed} className="hidden lg:grid place-items-center size-10 rounded-xl hover:bg-white/[0.05] text-[#7f95b3] hover:text-white"
+          aria-label={mini ? 'Expand sidebar' : 'Collapse sidebar'} title={mini ? 'Expand sidebar' : 'Collapse sidebar'}>
+          {mini ? <ChevronsRight size={17} /> : <ChevronsLeft size={17} />}
+        </button>
       </div>
-      <button onClick={logout} className="mx-3 mb-4 flex items-center gap-3 rounded-xl px-3 h-10 text-[13.5px] hover:bg-white/[0.04] hover:text-white">
-        <LogOut size={17} className="text-[#7f95b3]" /> Sign out
-      </button>
     </aside>
   )
 
   return (
     <div className="flex h-full">
-      <div className="hidden lg:block shrink-0">{sidebar}</div>
+      <div className="hidden lg:block shrink-0">{sidebar(collapsed)}</div>
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-navy-950/50" onClick={() => setMobileOpen(false)} />
-          <div className="relative h-full w-[260px]">{sidebar}
+          <div className="relative h-full w-[264px]">{sidebar(false)}
             <button className="absolute top-4 -right-11 btn-secondary h-9 w-9 p-0" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X size={16} /></button>
           </div>
         </div>
@@ -206,7 +278,10 @@ export function AppShell() {
           </Menu>
         </header>
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8 py-7"><Outlet /></div>
+          <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8 py-7">
+            {location.pathname === HOME[me.role] && <HomeBanner badges={badges} />}
+            <Outlet />
+          </div>
         </main>
       </div>
       <CommandPalette open={palette} onClose={() => setPalette(false)} />

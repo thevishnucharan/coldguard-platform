@@ -14,6 +14,7 @@ import { useApi } from '../../hooks/useApi'
 import { errorMessage } from '../../services/api/client'
 import { Logistics } from '../../services/api/endpoints'
 import { useAuthStore } from '../../store/authStore'
+import { TransitMonitor } from '../logistics/TransitMonitor'
 import { cx, fmtDateTime } from '../../utils/format'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -35,7 +36,8 @@ export default function ExcursionRoutingPage() {
   const excursions = useApi(() => Logistics.excursions(), [], { refreshOn: ['incident.created', 'incident.updated'], interval: 30000 })
   const plans = useApi(() => Logistics.plans(), [])
   const [selected, setSelected] = useState<string | null>(null)
-  const [params, setParams] = useState({ max_trip_minutes: 240, vehicle_capacity_litres: 60, vehicles: 1 })
+  const [params, setParams] = useState({ max_trip_minutes: 240, vehicle_capacity_litres: 60, vehicles: 1, allow_on_site: true })
+  const [transitKey, setTransitKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<View | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -114,6 +116,11 @@ export default function ExcursionRoutingPage() {
                   onChange={(e) => setParams({ ...params, vehicle_capacity_litres: Number(e.target.value) })} /></Field>
                 <Field label="Vehicles"><input type="number" min={1} max={10} className="input" value={params.vehicles}
                   onChange={(e) => setParams({ ...params, vehicles: Number(e.target.value) })} /></Field>
+                <label className="col-span-2 flex items-start gap-2 text-[12.5px] text-ink-2">
+                  <input type="checkbox" className="mt-0.5" checked={!params.allow_on_site}
+                    onChange={(e) => setParams({ ...params, allow_on_site: !e.target.checked })} />
+                  <span>Facility-wide problem (power outage, fire) — relocate to <b>other</b> facilities only</span>
+                </label>
               </div>
               <button className="btn-primary w-full mt-4" disabled={!sel || busy || sel.doses_at_risk === 0} onClick={optimise}>
                 <Route size={15} /> {busy ? 'Optimising…' : 'Optimise relocation route'}</button>
@@ -125,9 +132,12 @@ export default function ExcursionRoutingPage() {
           {!view ? (
             <Card><EmptyState icon={Truck} title="No plan selected"
               description={canPlan ? 'Pick an active excursion and optimise, or open a plan from the history below.' : 'Open a plan from the history below.'} /></Card>
-          ) : <PlanView view={view} canPlan={canPlan} onApprove={() => decide(true)} onCancel={() => setCancelOpen(true)} />}
+          ) : <PlanView view={view} canPlan={canPlan} onApprove={() => decide(true)} onCancel={() => setCancelOpen(true)}
+                onDispatched={() => { setTransitKey((k) => k + 1); reloadLists() }} />}
         </div>
       </div>
+
+      <div className="mt-4"><TransitMonitor key={transitKey} /></div>
 
       <Card className="mt-4" pad={false}>
         <div className="card-pad pb-0"><CardHeader title="Plan history" subtitle="Every generated plan is kept with its model version and decision" /></div>
@@ -151,7 +161,32 @@ export default function ExcursionRoutingPage() {
   )
 }
 
-function PlanView({ view, canPlan, onApprove, onCancel }: { view: View; canPlan: boolean; onApprove: () => void; onCancel: () => void }) {
+function DispatchBar({ planId, onDispatched }: { planId: string; onDispatched: () => void }) {
+  const [vehicle, setVehicle] = useState('')
+  const [busy, setBusy] = useState(false)
+  const go = async () => {
+    setBusy(true)
+    try {
+      const out = await Logistics.dispatch(planId, vehicle.trim())
+      toast.success(`${out.length} vehicle(s) dispatched — in-transit monitoring started`)
+      setVehicle('')
+      onDispatched()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-line bg-surface-2 p-3">
+      <Field label="Vehicle registration" hint="Its data logger reports position + cargo temperature" className="flex-1 min-w-48">
+        <input className="input" placeholder="e.g. KA01CC1001" value={vehicle} onChange={(e) => setVehicle(e.target.value.toUpperCase())} />
+      </Field>
+      <button className="btn-primary" disabled={busy || vehicle.trim().length < 2} onClick={go}><Truck size={15} /> {busy ? 'Dispatching…' : 'Dispatch vehicle'}</button>
+    </div>
+  )
+}
+
+function PlanView({ view, canPlan, onApprove, onCancel, onDispatched }: {
+  view: View; canPlan: boolean; onApprove: () => void; onCancel: () => void; onDispatched: () => void
+}) {
+  const canOperate = useAuthStore((st) => st.can('logistics.operate'))
   const r = view.result
   const s = r.summary
   const improvement = s.improvement_pct
@@ -175,6 +210,7 @@ function PlanView({ view, canPlan, onApprove, onCancel }: { view: View; canPlan:
             <button className="btn-primary btn-sm" onClick={onApprove}><CheckCircle2 size={14} /> Approve & notify</button></>} />
         <RouteMap source={r.source} trips={r.trips} />
         <p className="text-[11px] text-ink-3 mt-2">{r.note}</p>
+        {canOperate && view.status === 'APPROVED' && view.id && r.trips.length > 0 && <DispatchBar planId={view.id} onDispatched={onDispatched} />}
       </Card>
 
       {r.trips.map((t: Any, i: number) => (
