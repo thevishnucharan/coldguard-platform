@@ -1,0 +1,8 @@
+# ColdGuard ingestor (worker) reads telemetry
+user coldguard-ingestor
+topic read coldguard/telemetry/#
+topic read $SYS/#
+
+# Devices / gateways may only publish telemetry
+user coldguard-device
+topic write coldguard/telemetry/#

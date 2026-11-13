@@ -1,0 +1,211 @@
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ColdGuard design tokens.
+   Light: soft sky canvas, white surfaces, deep-navy navigation, teal accent, serif display type.
+   Dark (data-theme="dark"): deep navy surfaces (analytics-console style).
+   Status colours are reserved for state and always paired with an icon + label. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-navy-950: #0a1424;
+  --color-navy-900: #111c2e;
+  --color-navy-800: #182539;
+  --color-navy-700: #22324b;
+  --color-navy-600: #2d4060;
+
+  --color-brand-50: var(--cg-brand-50);
+  --color-brand-100: var(--cg-brand-100);
+  --color-brand-200: var(--cg-brand-200);
+  --color-brand-500: #14a294;
+  --color-brand-600: #0d8a7e;
+  --color-brand-700: var(--cg-brand-700);
+
+  --color-canvas: var(--cg-canvas);
+  --color-surface: var(--cg-surface);
+  --color-surface-2: var(--cg-surface-2);
+  --color-line: var(--cg-line);
+  --color-ink: var(--cg-ink);
+  --color-ink-2: var(--cg-ink-2);
+  --color-ink-3: var(--cg-ink-3);
+
+  --color-ok: #0ca30c;
+  --color-warn: #fab219;
+  --color-serious: #ec835a;
+  --color-crit: #d03b3b;
+  --color-ok-bg: var(--cg-ok-bg);
+  --color-warn-bg: var(--cg-warn-bg);
+  --color-serious-bg: var(--cg-serious-bg);
+  --color-crit-bg: var(--cg-crit-bg);
+  --color-info-bg: var(--cg-info-bg);
+  --color-ok-ink: var(--cg-ok-ink);
+  --color-warn-ink: var(--cg-warn-ink);
+  --color-serious-ink: var(--cg-serious-ink);
+  --color-crit-ink: var(--cg-crit-ink);
+  --color-info-ink: var(--cg-info-ink);
+
+  /* categorical chart slots 1–3 (validated: CVD ΔE ≥ 9.2) */
+  --color-series-1: var(--cg-series-1);
+  --color-series-2: var(--cg-series-2);
+  --color-series-3: var(--cg-series-3);
+
+  --shadow-card: var(--cg-shadow);
+}
+
+:root {
+  color-scheme: light;
+  --cg-canvas: #eef2f7;
+  --cg-canvas-image: radial-gradient(1200px 600px at 85% -10%, #dbe7f5 0%, transparent 60%),
+                     radial-gradient(900px 500px at -10% 110%, #e3eef0 0%, transparent 55%);
+  --cg-surface: #ffffff;
+  --cg-surface-2: #f7f9fc;
+  --cg-line: #e2e8f0;
+  --cg-ink: #111a2b;
+  --cg-ink-2: #4a5568;
+  --cg-ink-3: #7b8799;
+  --cg-brand-50: #ebfaf7;
+  --cg-brand-100: #cff4ec;
+  --cg-brand-200: #9ee8d9;
+  --cg-brand-700: #0b6f66;
+  --cg-ok-bg: #e8f7e8;
+  --cg-warn-bg: #fff5dc;
+  --cg-serious-bg: #fdede5;
+  --cg-crit-bg: #fbe9e9;
+  --cg-info-bg: #e8f1fc;
+  --cg-ok-ink: #0a6e0a;
+  --cg-warn-ink: #8a5a00;
+  --cg-serious-ink: #a2461f;
+  --cg-crit-ink: #9f2626;
+  --cg-info-ink: #1f5ea8;
+  --cg-series-1: #2a78d6;
+  --cg-series-2: #eb6834;
+  --cg-series-3: #1baf7a;
+  --cg-shadow: 0 1px 2px rgba(17, 26, 43, .04), 0 4px 16px -6px rgba(17, 26, 43, .08);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --cg-canvas: #0f1a2b;
+  --cg-canvas-image: none;
+  --cg-surface: #172338;
+  --cg-surface-2: #1c2a42;
+  --cg-line: #26354f;
+  --cg-ink: #e8eef7;
+  --cg-ink-2: #b4c0d3;
+  --cg-ink-3: #8393ab;
+  --cg-brand-50: #12363a;
+  --cg-brand-100: #15474a;
+  --cg-brand-200: #1f6b68;
+  --cg-brand-700: #5ee0cc;
+  --cg-ok-bg: #12331f;
+  --cg-warn-bg: #3a2e10;
+  --cg-serious-bg: #3c2418;
+  --cg-crit-bg: #3d1c1f;
+  --cg-info-bg: #16304f;
+  --cg-ok-ink: #7fdc7f;
+  --cg-warn-ink: #ffd36b;
+  --cg-serious-ink: #ffb08f;
+  --cg-crit-ink: #ff9d9d;
+  --cg-info-ink: #8cc0ff;
+  --cg-series-1: #3987e5;
+  --cg-series-2: #d95926;
+  --cg-series-3: #199e70;
+  --cg-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    margin: 0;
+    background-color: var(--color-canvas);
+    background-image: var(--cg-canvas-image);
+    background-attachment: fixed;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11" 1; /* tabular numerals are applied per-element via .tabular-nums */
+  }
+  :focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+  ::selection { background: var(--color-brand-200); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink-3) 35%, transparent); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+}
+
+/* Component classes are declared as @utility so they can be composed with @apply (Tailwind v4). */
+@utility card {
+  @apply bg-surface border border-line rounded-2xl shadow-card overflow-hidden;
+}
+@utility card-pad {
+  @apply p-4 sm:p-5;
+}
+@utility card-title {
+  @apply font-display text-[16px] font-semibold text-ink tracking-[-0.01em];
+}
+@utility card-sub {
+  @apply text-xs text-ink-3;
+}
+@utility display {
+  @apply font-display tracking-[-0.015em];
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 h-9 text-[13px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap;
+}
+@utility btn-primary {
+  @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-sm dark:hover:bg-brand-500;
+}
+@utility btn-dark {
+  @apply btn bg-navy-900 text-white hover:bg-navy-800 dark:bg-brand-600 dark:hover:bg-brand-500;
+}
+@utility btn-secondary {
+  @apply btn bg-surface border border-line text-ink hover:bg-surface-2;
+}
+@utility btn-ghost {
+  @apply btn text-ink-2 hover:bg-surface-2;
+}
+@utility btn-danger {
+  @apply btn bg-crit text-white hover:brightness-95;
+}
+@utility btn-sm {
+  @apply h-8 px-2.5 text-xs rounded-lg;
+}
+@utility input {
+  @apply w-full h-9 rounded-xl border border-line bg-surface px-3 text-[13px] text-ink placeholder:text-ink-3 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100;
+}
+@utility label {
+  @apply block text-xs font-medium text-ink-2 mb-1;
+}
+@utility th {
+  @apply px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 bg-surface-2 border-b border-line whitespace-nowrap;
+}
+@utility td {
+  @apply px-4 py-3 text-[13px] text-ink border-b border-line align-middle;
+}
+@utility mono {
+  @apply font-mono text-[12px];
+}
+@utility skeleton {
+  @apply animate-pulse rounded-md bg-line/70;
+}
+
+/* Leaflet facility pins & district labels */
+.cg-pin-wrap { background: transparent; border: 0; }
+.cg-pin { position: absolute; transform: translate(-9px, -9px); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.cg-pin-dot { width: 18px; height: 18px; border-radius: 9999px; background: var(--pin); border: 3px solid #fff;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--pin) 25%, transparent), 0 1px 3px rgba(0,0,0,.25);
+  display: grid; place-items: center; color: #fff; font: 700 10px/1 var(--font-sans); }
+.cg-pin.is-selected .cg-pin-dot { width: 24px; height: 24px; transform: translate(-3px,-3px);
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--pin) 30%, transparent), 0 2px 6px rgba(0,0,0,.3); }
+.cg-pin-label { font: 600 11px/1 var(--font-sans); color: #111a2b; background: rgba(255,255,255,.94);
+  padding: 3px 6px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.15); white-space: nowrap; pointer-events: none; }
+/* at regional zoom labels would collide: show them on hover / selection only */
+.cg-zoom-low .cg-pin-label { display: none; }
+.cg-zoom-low .cg-pin:hover .cg-pin-label, .cg-zoom-low .cg-pin.is-selected .cg-pin-label { display: inline; }
+.leaflet-tooltip.cg-region-label { background: rgba(255,255,255,.88); border: 0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  font: 600 12.5px var(--font-display); color: #111a2b; padding: 3px 8px; }
+.cg-region-label::before { display: none; }
+.leaflet-container { font-family: var(--font-sans); }
+[data-theme="dark"] .leaflet-bar a { background: var(--color-surface); color: var(--color-ink); border-color: var(--color-line); }
+[data-theme="dark"] .leaflet-control-attribution { background: rgba(23,35,56,.8); color: var(--color-ink-3); }

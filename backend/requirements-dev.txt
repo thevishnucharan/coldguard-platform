@@ -1,0 +1,7 @@
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+requests==2.31.0
+# optional cloud adapters (preserved v1 integrations)
+azure-eventhub==5.15.1
+azure-storage-blob==12.30.2

@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-11-12T12:39:46.904390+00:00",
+  "dataset": "SIMULATED (ml/dataset.py)",
+  "eval_seeds": [
+    9001,
+    9002,
+    9003
+  ],
+  "points": 9000,
+  "anomaly_points": 996,
+  "caveat": "Point-wise metrics vs injected labels on synthetic data; not field accuracy.",
+  "results": {
+    "iforest-prototype-v1": {
+      "precision": 1.0,
+      "recall": 0.067,
+      "f1": 0.126,
+      "tp": 67,
+      "fp": 0,
+      "fn": 929,
+      "false_positive_rate": 0.0
+    },
+    "iforest-v2-sim-2026.11": {
+      "precision": 0.784,
+      "recall": 0.058,
+      "f1": 0.108,
+      "tp": 58,
+      "fp": 16,
+      "fn": 938,
+      "false_positive_rate": 0.002
+    },
+    "rolling_zscore": {
+      "precision": 1.0,
+      "recall": 0.175,
+      "f1": 0.297,
+      "tp": 174,
+      "fp": 0,
+      "fn": 822,
+      "false_positive_rate": 0.0
+    },
+    "iforest-prototype-v1+zscore(AND)": {
+      "precision": 1.0,
+      "recall": 0.057,
+      "f1": 0.108,
+      "tp": 57,
+      "fp": 0,
+      "fn": 939,
+      "false_positive_rate": 0.0
+    },
+    "iforest-v2-sim-2026.11+zscore(AND)": {
+      "precision": 1.0,
+      "recall": 0.045,
+      "f1": 0.086,
+      "tp": 45,
+      "fp": 0,
+      "fn": 951,
+      "false_positive_rate": 0.0
+    }
+  }
+}

@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+*.db-*
+*.sqlite3
+.env
+.env.*
+!.env.example
+reports/
+ml/reports/
+_*.py
+_*.db
+.vscode/
+.idea/
+# NOTE: ml/models/*.joblib MUST be in the image (v1 excluded ml/, silently disabling ML in Docker)

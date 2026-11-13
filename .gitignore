@@ -1,0 +1,19 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.env
+.venv
+venv/
+.DS_Store
+coverage/
+
+# Kubernetes local secrets & local artefacts
+secrets.env
+*.db
+*.db-*
+_*.log
+
+# Rendered manifests contain real secrets
+_k8s_rendered.yaml
+.pytest_cache/

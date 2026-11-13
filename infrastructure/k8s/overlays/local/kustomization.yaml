@@ -1,0 +1,39 @@
+# Local (kind / minikube) overlay: demo mode on, single replicas, locally built images,
+# smaller volumes. Secrets from secrets.env (git-ignored; copy secrets.env.example).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: coldguard
+resources: [../../base]
+secretGenerator:
+  - name: coldguard-secrets
+    envs: [secrets.env]
+    options: { disableNameSuffixHash: true }   # base resources reference the stable name
+configMapGenerator:
+  - name: coldguard-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=development
+      - DEMO_MODE=true
+      - SIMULATION_ENABLED=true
+      - BACKEND_CORS_ORIGINS=http://localhost:8088
+patches:
+  - target: { kind: Deployment, name: "backend|frontend" }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target: { kind: HorizontalPodAutoscaler }
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+  - target: { kind: Deployment }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+  - target: { kind: StatefulSet, name: postgres }
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 1Gi

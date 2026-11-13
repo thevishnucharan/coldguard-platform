@@ -1,0 +1,192 @@
+# ColdGuard v2 — full stack (development / demonstration)
+#   cp .env.example .env   # then set the secrets
+#   docker compose up -d --build
+#   UI http://localhost:${UI_PORT:-8080} · API http://localhost:8001/docs · Grafana http://localhost:3000 · Prometheus http://localhost:9090
+# Production overrides: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# MQTT device simulator (optional): docker compose --profile mqtt-sim up -d simulator
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  DATABASE_URL: postgresql://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-coldguard}
+  SECRET_KEY: ${SECRET_KEY:?set in .env}
+  INGEST_API_KEY: ${INGEST_API_KEY:?set in .env}
+  BACKEND_CORS_ORIGINS: http://localhost:${UI_PORT:-8080}
+  REDIS_URL: redis://redis:6379/0
+  MQTT_ENABLED: "true"
+  MQTT_HOST: mosquitto
+  MQTT_USERNAME: coldguard-ingestor
+  MQTT_PASSWORD: ${MQTT_INGESTOR_PASSWORD:?set in .env}
+  DEMO_MODE: ${DEMO_MODE:-true}
+  SIMULATION_ENABLED: ${DEMO_MODE:-true}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
+services:
+  postgres:
+    <<: *hardening
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-coldguard}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy: { resources: { limits: { memory: 512M } } }
+    networks: [data]
+
+  redis:
+    <<: *hardening
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes: [redis_data:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20 }
+    deploy: { resources: { limits: { memory: 192M } } }
+    networks: [data]
+
+  mosquitto:
+    <<: *hardening
+    image: eclipse-mosquitto:2.0.20
+    entrypoint: ["/bin/sh", "/config-src/entrypoint.sh"]
+    environment:
+      MQTT_INGESTOR_PASSWORD: ${MQTT_INGESTOR_PASSWORD}
+      MQTT_DEVICE_PASSWORD: ${MQTT_DEVICE_PASSWORD:?set in .env}
+    volumes:
+      - ./infrastructure/mosquitto:/config-src:ro
+      - mosquitto_data:/mosquitto/data
+    ports: ["1883:1883"]          # device ingress
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -u coldguard-ingestor -P $${MQTT_INGESTOR_PASSWORD} -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy: { resources: { limits: { memory: 64M } } }
+    networks: [data]
+
+  migrate:                         # one-shot: schema migrations + (demo mode) seed data
+    build: { context: ./backend }
+    image: coldguard-backend:2.0.0
+    command: ["sh", "-c", "python scripts/migrate.py && python scripts/seed.py"]
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+    networks: [data]
+
+  backend:
+    <<: *hardening
+    image: coldguard-backend:2.0.0
+    command: ["api"]
+    environment:
+      <<: *backend-env
+      RUN_EMBEDDED_WORKER: "false"   # the dedicated worker owns MQTT + schedules
+      MIGRATE_ON_START: "false"
+      UVICORN_WORKERS: "2"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    ports: ["8001:8000"]             # direct API access (UI uses nginx proxy)
+    healthcheck: { test: ["CMD", "curl", "-fsS", "http://localhost:8000/ready"], interval: 10s, timeout: 5s, retries: 10, start_period: 20s }
+    deploy: { resources: { limits: { cpus: "1.0", memory: 768M } } }
+    networks: [data, web]
+
+  worker:
+    <<: *hardening
+    image: coldguard-backend:2.0.0
+    command: ["worker"]
+    environment:
+      <<: *backend-env
+      RUN_EMBEDDED_WORKER: "false"
+      WORKER_TICK_SECONDS: "20"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      mosquitto: { condition: service_healthy }
+    healthcheck: { test: ["CMD", "curl", "-fsS", "http://localhost:9101/metrics"], interval: 15s, timeout: 5s, retries: 10 }
+    deploy: { resources: { limits: { cpus: "1.0", memory: 768M } } }
+    networks: [data]
+
+  frontend:
+    <<: *hardening
+    build:
+      context: ./frontend
+      args: { VITE_SHOW_DEMO_LOGINS: "${DEMO_MODE:-true}" }
+    image: coldguard-frontend:2.0.0
+    depends_on: { backend: { condition: service_healthy } }
+    ports: ["${UI_PORT:-8080}:8080"]
+    deploy: { resources: { limits: { memory: 128M } } }
+    networks: [web]
+
+  prometheus:
+    <<: *hardening
+    image: prom/prometheus:v3.1.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./infrastructure/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    ports: ["9090:9090"]
+    networks: [data, web]
+
+  grafana:
+    <<: *hardening
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/coldguard-application.json
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on: [prometheus]
+    ports: ["3000:3000"]
+    networks: [web]
+
+  postgres-exporter:
+    <<: *hardening
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-coldguard}?sslmode=disable
+    depends_on: { postgres: { condition: service_healthy } }
+    networks: [data]
+
+  redis-exporter:
+    <<: *hardening
+    image: oliver006/redis_exporter:v1.66.0
+    environment: { REDIS_ADDR: "redis://redis:6379" }
+    depends_on: { redis: { condition: service_healthy } }
+    networks: [data]
+
+  simulator:                       # optional MQTT device simulator (SIMULATED data)
+    profiles: ["mqtt-sim"]
+    build: { context: ., dockerfile: simulator/Dockerfile }
+    image: coldguard-simulator:2.0.0
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_USERNAME: coldguard-device
+      MQTT_PASSWORD: ${MQTT_DEVICE_PASSWORD}
+      API_URL: http://backend:8000/api/v1
+      SIM_DISCOVER: "true"
+      SIM_API_EMAIL: ${SIM_API_EMAIL:-auditor@coldguard.local}
+      SIM_API_PASSWORD: ${SIM_API_PASSWORD:-}
+      SIM_INTERVAL: "15"
+    depends_on: { backend: { condition: service_healthy }, mosquitto: { condition: service_healthy } }
+    networks: [data]
+
+networks:
+  data: {}
+  web: {}
+
+volumes:
+  postgres_data: {}
+  redis_data: {}
+  mosquitto_data: {}
+  prometheus_data: {}
+  grafana_data: {}

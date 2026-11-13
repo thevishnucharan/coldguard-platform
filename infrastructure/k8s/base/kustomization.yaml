@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: coldguard
+labels:
+  - pairs: { app.kubernetes.io/part-of: coldguard }
+resources:
+  - namespace.yaml
+  - data.yaml
+  - app.yaml
+  - monitoring.yaml
+  - network-policies.yaml
+configMapGenerator:
+  - name: coldguard-config
+    literals:
+      - ENVIRONMENT=production
+      - DEMO_MODE=false
+      - SIMULATION_ENABLED=false
+      - MQTT_ENABLED=true
+      - MQTT_HOST=mosquitto
+      - MQTT_USERNAME=coldguard-ingestor
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - WORKER_TICK_SECONDS=20
+      - BACKEND_CORS_ORIGINS=https://coldguard.local
+  - name: mosquitto-config
+    files: [config/mosquitto.conf, config/acl, config/entrypoint.sh]
+  - name: prometheus-config
+    files: [config/prometheus.yml, config/alerts.yml]
+  - name: grafana-datasources
+    files: [prometheus.yml=config/grafana-datasource.yml]
+  - name: grafana-dashboard-providers
+    files: [dashboards.yml=config/grafana-dashboards.yml]
+  - name: grafana-dashboards
+    files:
+      - config/coldguard-infrastructure.json
+      - config/coldguard-application.json
+      - config/coldguard-iot.json
+      - config/coldguard-incidents.json
+# Secrets are NOT stored in git. Each overlay generates coldguard-secrets from a local,
+# git-ignored secrets.env (see overlays/local/secrets.env.example) or an external secret store.

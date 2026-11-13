@@ -1,0 +1,33 @@
+groups:
+  - name: coldguard
+    rules:
+      - alert: ColdGuardApiDown
+        expr: up{job="coldguard-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "ColdGuard API is not responding to scrapes" }
+      - alert: ColdGuardWorkerStale
+        expr: time() - max(coldguard_worker_last_heartbeat_timestamp) > 180
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "Background worker has not completed a cycle in 3 minutes (no escalations / offline detection)" }
+      - alert: ColdGuardMqttDisconnected
+        expr: max(coldguard_mqtt_connected) == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "MQTT ingestor disconnected from broker — device telemetry is not being received" }
+      - alert: ColdGuardHighErrorRate
+        expr: sum(rate(coldguard_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(coldguard_http_requests_total[5m])), 1e-9) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "More than 5% of API requests are failing" }
+      - alert: ColdGuardIngestionStopped
+        expr: sum(rate(coldguard_telemetry_accepted_total[10m])) == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "No telemetry accepted for 10 minutes" }
+      - alert: ColdGuardDatabaseDown
+        expr: pg_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "PostgreSQL is unavailable" }
