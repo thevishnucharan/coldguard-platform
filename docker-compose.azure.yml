@@ -1,0 +1,4 @@
+﻿services:
+  backend:
+    environment:
+      BACKEND_CORS_ORIGINS: "http://localhost:8090,https://calm-rock-01fef1a00.5.azurestaticapps.net"

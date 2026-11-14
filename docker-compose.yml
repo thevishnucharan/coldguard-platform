@@ -61,7 +61,7 @@ services:
     volumes:
       - ./infrastructure/mosquitto:/config-src:ro
       - mosquitto_data:/mosquitto/data
-    ports: ["1883:1883"]          # device ingress
+    ports: ["1883:1883"]
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h localhost -u coldguard-ingestor -P $${MQTT_INGESTOR_PASSWORD} -t '$$SYS/broker/uptime' -C 1 -W 3"]
       interval: 10s
@@ -70,7 +70,7 @@ services:
     deploy: { resources: { limits: { memory: 64M } } }
     networks: [data]
 
-  migrate:                         # one-shot: schema migrations + (demo mode) seed data
+  migrate:
     build: { context: ./backend }
     image: coldguard-backend:2.0.0
     command: ["sh", "-c", "python scripts/migrate.py && python scripts/seed.py"]
@@ -85,13 +85,13 @@ services:
     command: ["api"]
     environment:
       <<: *backend-env
-      RUN_EMBEDDED_WORKER: "false"   # the dedicated worker owns MQTT + schedules
+      RUN_EMBEDDED_WORKER: "false"
       MIGRATE_ON_START: "false"
       UVICORN_WORKERS: "2"
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-    ports: ["8001:8000"]             # direct API access (UI uses nginx proxy)
+    ports: ["8001:8000"]
     healthcheck: { test: ["CMD", "curl", "-fsS", "http://localhost:8000/ready"], interval: 10s, timeout: 5s, retries: 10, start_period: 20s }
     deploy: { resources: { limits: { cpus: "1.0", memory: 768M } } }
     networks: [data, web]
@@ -157,7 +157,7 @@ services:
     depends_on: { postgres: { condition: service_healthy } }
     networks: [data]
 
-  container-exporter:              # per-container CPU / memory / health (Docker Engine API; works on Docker Desktop)
+  container-exporter:
     <<: *hardening
     image: python:3.14-slim
     command: ["python", "/app/exporter.py"]
@@ -165,7 +165,7 @@ services:
       COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
     volumes:
       - ./infrastructure/docker-stats-exporter:/app:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro   # read-only; internal network only, no host port
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9417/healthz', timeout=3)"]
       interval: 15s
@@ -181,7 +181,7 @@ services:
     depends_on: { redis: { condition: service_healthy } }
     networks: [data]
 
-  simulator:                       # optional MQTT device simulator (SIMULATED data)
+  simulator:
     profiles: ["mqtt-sim"]
     build: { context: ., dockerfile: simulator/Dockerfile }
     image: coldguard-simulator:2.0.0
@@ -194,7 +194,30 @@ services:
       SIM_API_EMAIL: ${SIM_API_EMAIL:-auditor@coldguard.local}
       SIM_API_PASSWORD: ${SIM_API_PASSWORD:-}
       SIM_INTERVAL: "15"
-    depends_on: { backend: { condition: service_healthy }, mosquitto: { condition: service_healthy } }
+    depends_on:
+      backend: { condition: service_healthy }
+      mosquitto: { condition: service_healthy }
+    networks: [data]
+
+  # Additional MQTT-to-Azure IoT Hub telemetry bridge
+  azure-bridge:
+    <<: *hardening
+    build:
+      context: ./azure-bridge
+      dockerfile: Dockerfile
+    image: coldguard-azure-bridge:1.0.0
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_USERNAME: coldguard-ingestor
+      MQTT_PASSWORD: ${MQTT_INGESTOR_PASSWORD:?set in .env}
+      MQTT_TOPIC: coldguard/telemetry/#
+      IOTHUB_DEVICE_CONNECTION_STRING: ${IOTHUB_DEVICE_CONNECTION_STRING:?set in .env}
+      LOG_LEVEL: INFO
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
     networks: [data]
 
 networks:
